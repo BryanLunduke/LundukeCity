@@ -1,0 +1,16 @@
+Source: lunduke-city
+Section: games
+Priority: optional
+Maintainer: LCOS <lcos@lunduke.com>
+Homepage: https://lunduke.com
+Standards-Version: 4.6.2
+
+Package: lunduke-city
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}, desktop-file-utils, gtk-update-icon-cache
+Recommends: libpulse0
+Description: Lunduke City, a gtkmm city-builder for LCOS
+ Windowed city-building game for the Lunduke Computer Operating System.
+ Classic menu / funds / tool-palette / map layout wired to the Micropolis
+ simulation engine (tiles, sprites, budget, overlays, PulseAudio sounds).
+ GPL-3.0-or-later with Electronic Arts additional terms; see NOTICE.

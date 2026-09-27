@@ -1,0 +1,9 @@
+lunduke-city (0.2-1) unstable; urgency=medium
+
+  * Initial Debian packaging of Lunduke City 0.2 for LCOS.
+  * gtkmm 3 shell: tiles, sprites, budget, map overlays, PulseAudio sounds.
+  * Ships NOTICE (GPL-3+ and EA additional terms) and COPYING under
+    /usr/share/doc/lunduke-city/.
+  * Vendored Micropolis engine + assets under /usr/share/lunduke-city/.
+
+ -- Phil <phil@brushpad.local>  Sun, 27 Sep 2026 18:34:00 -0500

@@ -1,3 +1,11 @@
 /build/
+/build-*/
 *.o
-*.user
+*.a
+*.so
+*~
+*.swp
+.meson/
+.cache/
+packaging/src/
+packaging/debs/

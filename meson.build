@@ -26,3 +26,8 @@ install_subdir(
   'third_party/micropolis-assets',
   install_dir: get_option('datadir') / 'lunduke-city',
 )
+install_data(
+  'NOTICE',
+  'COPYING',
+  install_dir: get_option('datadir') / 'doc' / 'lunduke-city',
+)
