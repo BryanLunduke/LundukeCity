@@ -7,6 +7,8 @@
 #include "city_session.hpp"
 #include "tools.hpp"
 
+#include "micropolis.h"
+
 #include <gdkmm/pixbuf.h>
 #include <glibmm/main.h>
 #include <gtkmm/dialog.h>
@@ -27,6 +29,16 @@ AppWindow::AppWindow()
     set_title("Lunduke City");
     set_default_size(1100, 740);
     session_ = std::make_unique<CitySession>();
+    const CitySession::MapLayer layers[] = {
+        CitySession::MapLayer::Power,    CitySession::MapLayer::Water,
+        CitySession::MapLayer::Pollution, CitySession::MapLayer::Crime,
+        CitySession::MapLayer::LandValue, CitySession::MapLayer::Traffic,
+    };
+    for (int i = 0; i < 6; ++i) {
+        overlays_[i] = std::make_unique<OverlayWindow>(layers[i]);
+        overlays_[i]->set_session(session_.get());
+    }
+    budget_window_.set_session(session_.get());
     build_ui();
     build_menus();
     bind_session();
@@ -43,7 +55,7 @@ AppWindow::AppWindow()
     timer_ = Glib::signal_timeout().connect(sigc::mem_fun(*this, &AppWindow::on_tick), 100);
     Glib::signal_timeout().connect_once([this] { center_on_fraction(0.5, 0.5); }, 200);
     Glib::signal_timeout().connect_once(sigc::mem_fun(*this, &AppWindow::grab_screenshot_if_requested),
-                                        700);
+                                        600);
 }
 
 void AppWindow::build_ui()
@@ -144,9 +156,11 @@ void AppWindow::build_menus()
     auto_budget_item_ = Gtk::manage(new Gtk::CheckMenuItem("Auto _budget", true));
     auto_bulldoze_item_ = Gtk::manage(new Gtk::CheckMenuItem("Auto _bulldoze", true));
     disasters_item_ = Gtk::manage(new Gtk::CheckMenuItem("Enable _disasters", true));
+    mute_item_ = Gtk::manage(new Gtk::CheckMenuItem("_Mute sound", true));
     options_menu->append(*auto_budget_item_);
     options_menu->append(*auto_bulldoze_item_);
     options_menu->append(*disasters_item_);
+    options_menu->append(*mute_item_);
     options_menu->append(*Gtk::manage(new Gtk::SeparatorMenuItem()));
 
     Gtk::RadioMenuItem::Group speed_group;
@@ -176,6 +190,13 @@ void AppWindow::build_menus()
     windows->set_submenu(*windows_menu);
     add_item(windows_menu, "_Budget", 0, sigc::mem_fun(*this, &AppWindow::on_budget));
     add_item(windows_menu, "_Evaluation", 0, sigc::mem_fun(*this, &AppWindow::on_evaluation));
+    windows_menu->append(*Gtk::manage(new Gtk::SeparatorMenuItem()));
+    add_item(windows_menu, "_Power", 0, [this] { on_overlay(CitySession::MapLayer::Power); });
+    add_item(windows_menu, "_Water", 0, [this] { on_overlay(CitySession::MapLayer::Water); });
+    add_item(windows_menu, "P_ollution", 0, [this] { on_overlay(CitySession::MapLayer::Pollution); });
+    add_item(windows_menu, "_Crime", 0, [this] { on_overlay(CitySession::MapLayer::Crime); });
+    add_item(windows_menu, "_Land value", 0, [this] { on_overlay(CitySession::MapLayer::LandValue); });
+    add_item(windows_menu, "_Traffic", 0, [this] { on_overlay(CitySession::MapLayer::Traffic); });
     windows_menu->append(*Gtk::manage(new Gtk::SeparatorMenuItem()));
     add_item(windows_menu, "_About Lunduke City", 0, sigc::mem_fun(*this, &AppWindow::on_about));
     menu_bar_.append(*windows);
@@ -237,6 +258,11 @@ void AppWindow::bind_session()
             session_->set_disasters(disasters_item_->get_active());
         }
     });
+    mute_item_->signal_toggled().connect([this] {
+        if (!updating_checks_) {
+            session_->set_sound_enabled(!mute_item_->get_active());
+        }
+    });
     for (int i = 0; i < 4; ++i) {
         speed_items_[i]->signal_toggled().connect([this, i] {
             if (!updating_checks_ && speed_items_[i]->get_active()) {
@@ -268,6 +294,20 @@ void AppWindow::refresh()
     map_.queue_draw();
     minimap_.queue_draw();
     demand_.queue_draw();
+    if (budget_window_.get_visible()) {
+        budget_window_.sync();
+    }
+    for (auto &overlay : overlays_) {
+        if (overlay && overlay->get_visible()) {
+            overlay->queue_draw();
+        }
+    }
+    for (const auto &name : session_->take_sounds()) {
+        sound_.play(name);
+    }
+    if (session_->take_budget_request()) {
+        Glib::signal_idle().connect_once(sigc::mem_fun(*this, &AppWindow::on_budget));
+    }
 }
 
 void AppWindow::sync_option_checks()
@@ -276,6 +316,7 @@ void AppWindow::sync_option_checks()
     auto_budget_item_->set_active(session_->auto_budget());
     auto_bulldoze_item_->set_active(session_->auto_bulldoze());
     disasters_item_->set_active(session_->disasters());
+    mute_item_->set_active(!session_->sound_enabled());
     const int speed = session_->speed();
     if (speed >= 0 && speed < 4) {
         speed_items_[speed]->set_active(true);
@@ -411,29 +452,16 @@ void AppWindow::on_save_city_as()
 
 void AppWindow::on_budget()
 {
-    Gtk::Dialog dialog("Budget", *this, true);
-    dialog.add_button("_Close", Gtk::RESPONSE_CLOSE);
-    auto *content = dialog.get_content_area();
-    auto *summary = Gtk::manage(new Gtk::Label(session_->budget_text()));
-    summary->set_halign(Gtk::ALIGN_START);
-    auto *row = Gtk::manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL, 8));
-    auto *tax_label = Gtk::manage(new Gtk::Label("Tax rate"));
-    auto *tax = Gtk::manage(new Gtk::SpinButton());
-    tax->set_range(0, 20);
-    tax->set_increments(1, 5);
-    tax->set_value(session_->tax());
-    tax->signal_value_changed().connect([this, tax] {
-        session_->set_tax(tax->get_value_as_int());
-        refresh();
-    });
-    row->pack_start(*tax_label, Gtk::PACK_SHRINK);
-    row->pack_start(*tax, Gtk::PACK_SHRINK);
-    content->pack_start(*summary, Gtk::PACK_SHRINK);
-    content->pack_start(*row, Gtk::PACK_SHRINK);
-    content->set_border_width(8);
-    content->set_spacing(8);
-    dialog.show_all_children();
-    dialog.run();
+    budget_window_.present_book();
+}
+
+void AppWindow::on_overlay(CitySession::MapLayer layer)
+{
+    const int index = static_cast<int>(layer);
+    if (index < 0 || index >= 6 || !overlays_[index]) {
+        return;
+    }
+    overlays_[index]->present_map();
 }
 
 void AppWindow::on_evaluation()
@@ -445,28 +473,56 @@ void AppWindow::on_evaluation()
 
 void AppWindow::on_about()
 {
-    Gtk::MessageDialog dialog(*this, "Lunduke City 0.1", false, Gtk::MESSAGE_INFO, Gtk::BUTTONS_OK,
+    Gtk::MessageDialog dialog(*this, "Lunduke City 0.2", false, Gtk::MESSAGE_INFO, Gtk::BUTTONS_OK,
                               true);
     dialog.set_secondary_text(
-        "A city-building game. The simulation is the Micropolis engine, "
-        "used under GPL-3.0-or-later with the additional terms in NOTICE.\n\n"
+        "A city-building game. The simulation and the 16-pixel tiles, sprites, "
+        "and sounds are from Micropolis, used under GPL-3.0-or-later with the "
+        "additional terms in NOTICE.\n\n"
         "Lunduke City is an independent project. It is not affiliated with "
         "or endorsed by Electronic Arts.");
     dialog.run();
 }
 
-void AppWindow::grab_screenshot_if_requested()
+void AppWindow::prepare_demo_if_requested()
 {
-    const char *path = std::getenv("LUNDUKE_CITY_SCREENSHOT");
+    const char *demo = std::getenv("LUNDUKE_CITY_DEMO");
+    if (demo == nullptr || demo[0] == '\0') {
+        return;
+    }
+    int ox = 0;
+    int oy = 0;
+    session_->set_speed(3);
+    if (!session_->stamp_neighborhood(ox, oy)) {
+        session_->disaster_tornado();
+        session_->tick();
+        refresh();
+        return;
+    }
+    // Enough simulator phases for a power scan to mark zones and wires.
+    for (int i = 0; i < 180; ++i) {
+        session_->tick();
+    }
+    session_->place_sprite(SPRITE_AIRPLANE, ox + 8, oy + 3);
+    session_->place_sprite(SPRITE_MONSTER, ox + 12, oy + 8);
+    session_->place_sprite(SPRITE_HELICOPTER, ox + 4, oy + 10);
+    map_.set_tile_size(16);
+    center_on_fraction((ox + 9) / static_cast<double>(CitySession::kWorldW),
+                       (oy + 6) / static_cast<double>(CitySession::kWorldH));
+    refresh();
+}
+
+void AppWindow::save_widget_png(Gtk::Widget &widget, const char *path)
+{
     if (path == nullptr || path[0] == '\0') {
         return;
     }
-    auto window = get_window();
+    auto window = widget.get_window();
     if (!window) {
         return;
     }
-    const int w = get_allocated_width();
-    const int h = get_allocated_height();
+    const int w = widget.get_allocated_width();
+    const int h = widget.get_allocated_height();
     if (w < 2 || h < 2) {
         return;
     }
@@ -476,8 +532,58 @@ void AppWindow::grab_screenshot_if_requested()
     } catch (const Glib::Error &) {
         return;
     }
-    if (const char *exit_flag = std::getenv("LUNDUKE_CITY_EXIT");
-        exit_flag != nullptr && exit_flag[0] == '1') {
-        hide();
+}
+
+void AppWindow::grab_followup_shots()
+{
+    const char *budget = std::getenv("LUNDUKE_CITY_SHOT_BUDGET");
+    const char *overlay = std::getenv("LUNDUKE_CITY_SHOT_OVERLAY");
+    if (budget != nullptr && budget[0] != '\0') {
+        on_budget();
     }
+    if (overlay != nullptr && overlay[0] != '\0') {
+        on_overlay(CitySession::MapLayer::Power);
+    }
+    Glib::signal_timeout().connect_once(
+        [this, budget, overlay] {
+            if (budget != nullptr && budget[0] != '\0') {
+                save_widget_png(budget_window_, budget);
+                budget_window_.hide();
+            }
+            if (overlay != nullptr && overlay[0] != '\0' && overlays_[0]) {
+                save_widget_png(*overlays_[0], overlay);
+                overlays_[0]->hide();
+            }
+            if (const char *exit_flag = std::getenv("LUNDUKE_CITY_EXIT");
+                exit_flag != nullptr && exit_flag[0] == '1') {
+                hide();
+            }
+        },
+        350);
+}
+
+void AppWindow::grab_screenshot_if_requested()
+{
+    const char *path = std::getenv("LUNDUKE_CITY_SCREENSHOT");
+    if (path == nullptr || path[0] == '\0') {
+        return;
+    }
+    prepare_demo_if_requested();
+    Glib::signal_timeout().connect_once(
+        [this, path] {
+            const auto sprites = session_->sprites();
+            for (const auto &dot : sprites) {
+                if (dot.type == SPRITE_AIRPLANE || dot.type == SPRITE_MONSTER ||
+                    dot.type == SPRITE_HELICOPTER || dot.type == SPRITE_SHIP ||
+                    dot.type == SPRITE_TORNADO || dot.type == SPRITE_TRAIN) {
+                    center_on_fraction((dot.tile_x + 2) / static_cast<double>(CitySession::kWorldW),
+                                       (dot.tile_y + 2) / static_cast<double>(CitySession::kWorldH));
+                    break;
+                }
+            }
+            refresh();
+            save_widget_png(*this, path);
+            grab_followup_shots();
+        },
+        400);
 }

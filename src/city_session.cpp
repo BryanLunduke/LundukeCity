@@ -78,6 +78,7 @@ CitySession::CitySession()
         self->on_callback(name, params, args);
     };
     engine_->sim.callbackData = this;
+    engine_->sim.setEnableSound(sound_enabled_);
 }
 
 CitySession::~CitySession()
@@ -155,6 +156,22 @@ void CitySession::on_callback(const char *name, const char *params, va_list args
         return;
     }
 
+    if (which == "makeSound") {
+        const char *channel = (params != nullptr && params[0] == 's') ? take_string() : "";
+        const char *sound = (params != nullptr && params[0] == 's' && params[1] == 's') ? take_string() : "";
+        (void)channel;
+        if (sound[0] != '\0') {
+            sounds_.emplace_back(sound);
+        }
+        return;
+    }
+
+    if (which == "showBudgetAndWait") {
+        budget_requested_ = true;
+        notify();
+        return;
+    }
+
     if (which == "didntLoadCity" || which == "didntSaveCity") {
         const char *msg = (params != nullptr && params[0] == 's') ? take_string() : "";
         message_ = std::string(which == "didntLoadCity" ? "Could not load " : "Could not save ") + msg;
@@ -181,6 +198,7 @@ void CitySession::new_city(const std::string &name, int seed)
     const int used_seed = seed != 0 ? seed : static_cast<int>(std::time(nullptr));
     sim.generateSomeCity(used_seed);
     sim.setSpeed(static_cast<short>(speed_));
+    sim.setEnableSound(sound_enabled_);
     save_path_.clear();
     message_.clear();
     ready_ = true;
@@ -196,6 +214,7 @@ bool CitySession::load_city(const std::string &path)
         return false;
     }
     sim.setSpeed(static_cast<short>(speed_));
+    sound_enabled_ = sim.enableSound;
     save_path_ = path;
     ready_ = true;
     if (message_.empty()) {
@@ -307,6 +326,201 @@ int CitySession::tax() const
     return engine_->sim.cityTax;
 }
 
+void CitySession::set_service_funding(int kind, int percent)
+{
+    if (percent < 0) {
+        percent = 0;
+    }
+    if (percent > 100) {
+        percent = 100;
+    }
+    const float fraction = static_cast<float>(percent) / 100.0f;
+    Micropolis &sim = engine_->sim;
+    Quad *fund = &sim.roadFund;
+    float *slot = &sim.roadPercent;
+    Quad *spend = &sim.roadSpend;
+    if (kind == 1) {
+        fund = &sim.policeFund;
+        slot = &sim.policePercent;
+        spend = &sim.policeSpend;
+    } else if (kind == 2) {
+        fund = &sim.fireFund;
+        slot = &sim.firePercent;
+        spend = &sim.fireSpend;
+    }
+    *slot = fraction;
+    *spend = static_cast<Quad>(*fund * fraction);
+    sim.updateFundEffects();
+}
+
+void CitySession::set_road_funding(int percent)
+{
+    set_service_funding(0, percent);
+}
+
+void CitySession::set_police_funding(int percent)
+{
+    set_service_funding(1, percent);
+}
+
+void CitySession::set_fire_funding(int percent)
+{
+    set_service_funding(2, percent);
+}
+
+namespace {
+
+int percent_of(float fraction)
+{
+    int n = static_cast<int>(fraction * 100.0f + 0.5f);
+    if (n < 0) {
+        n = 0;
+    }
+    if (n > 100) {
+        n = 100;
+    }
+    return n;
+}
+
+long funded(Quad need, int percent)
+{
+    return static_cast<long>(need) * percent / 100;
+}
+
+} // namespace
+
+CitySession::BudgetBook CitySession::budget() const
+{
+    const Micropolis &sim = engine_->sim;
+    BudgetBook book;
+    book.taxes = static_cast<long>(sim.taxFund);
+    book.funds = static_cast<long>(sim.totalFunds);
+    book.tax_percent = sim.cityTax;
+    book.road_percent = percent_of(sim.roadPercent);
+    book.police_percent = percent_of(sim.policePercent);
+    book.fire_percent = percent_of(sim.firePercent);
+    book.road_need = static_cast<long>(sim.roadFund);
+    book.police_need = static_cast<long>(sim.policeFund);
+    book.fire_need = static_cast<long>(sim.fireFund);
+    book.road_spent = funded(sim.roadFund, book.road_percent);
+    book.police_spent = funded(sim.policeFund, book.police_percent);
+    book.fire_spent = funded(sim.fireFund, book.fire_percent);
+    book.cash_flow = book.taxes - book.road_spent - book.police_spent - book.fire_spent;
+    return book;
+}
+
+void CitySession::set_sound_enabled(bool on)
+{
+    sound_enabled_ = on;
+    engine_->sim.setEnableSound(on);
+}
+
+bool CitySession::sound_enabled() const
+{
+    return sound_enabled_;
+}
+
+std::vector<std::string> CitySession::take_sounds()
+{
+    std::vector<std::string> sounds;
+    sounds.swap(sounds_);
+    return sounds;
+}
+
+bool CitySession::take_budget_request()
+{
+    const bool requested = budget_requested_;
+    budget_requested_ = false;
+    return requested;
+}
+
+void CitySession::place_sprite(int type, int tile_x, int tile_y)
+{
+    if (!ready_) {
+        return;
+    }
+    if (type <= SPRITE_NOTUSED || type >= SPRITE_COUNT) {
+        return;
+    }
+    engine_->sim.makeSprite(type, tile_x << 4, tile_y << 4);
+}
+
+bool CitySession::stamp_neighborhood(int &origin_x, int &origin_y)
+{
+    origin_x = 0;
+    origin_y = 0;
+    if (!ready_) {
+        return false;
+    }
+    Micropolis &sim = engine_->sim;
+    constexpr int kWide = 20;
+    constexpr int kTall = 14;
+    auto open_land = [](int raw) {
+        const int tile = raw & LOMASK;
+        return tile == DIRT || (tile >= TREEBASE && tile <= WOODS5) ||
+               (tile >= RUBBLE && tile <= LASTRUBBLE);
+    };
+    bool found = false;
+    for (int y = 2; y < kWorldH - kTall && !found; ++y) {
+        for (int x = 2; x < kWorldW - kWide; ++x) {
+            bool clear = true;
+            for (int dy = 0; dy < kTall && clear; ++dy) {
+                for (int dx = 0; dx < kWide; ++dx) {
+                    if (!open_land(sim.map[x + dx][y + dy])) {
+                        clear = false;
+                        break;
+                    }
+                }
+            }
+            if (clear) {
+                origin_x = x;
+                origin_y = y;
+                found = true;
+            }
+        }
+    }
+    if (!found) {
+        return false;
+    }
+    for (int dy = 0; dy < kTall; ++dy) {
+        for (int dx = 0; dx < kWide; ++dx) {
+            if ((sim.map[origin_x + dx][origin_y + dy] & LOMASK) != DIRT) {
+                sim.doTool(TOOL_BULLDOZER, static_cast<short>(origin_x + dx),
+                           static_cast<short>(origin_y + dy));
+            }
+        }
+    }
+
+    const int ox = origin_x;
+    const int oy = origin_y;
+    auto put = [&](EditingTool tool, int x, int y) {
+        sim.doTool(tool, static_cast<short>(x), static_cast<short>(y));
+    };
+
+    // Click is the building center. 4x4 coal occupies center-1 .. center+2.
+    put(TOOL_COALPOWER, static_cast<short>(ox + 3), static_cast<short>(oy + 3));
+    put(TOOL_RESIDENTIAL, static_cast<short>(ox + 9), static_cast<short>(oy + 3));
+    put(TOOL_COMMERCIAL, static_cast<short>(ox + 15), static_cast<short>(oy + 3));
+    put(TOOL_INDUSTRIAL, static_cast<short>(ox + 3), static_cast<short>(oy + 9));
+    put(TOOL_FIRESTATION, static_cast<short>(ox + 9), static_cast<short>(oy + 9));
+    put(TOOL_POLICESTATION, static_cast<short>(ox + 15), static_cast<short>(oy + 9));
+    put(TOOL_PARK, static_cast<short>(ox + 13), static_cast<short>(oy + 8));
+
+    for (int y = oy; y < oy + kTall; ++y) {
+        for (int x = ox; x < ox + kWide; ++x) {
+            const bool grid = (x - ox) % 6 == 0 || (y - oy) % 6 == 0;
+            if (grid && (sim.map[x][y] & LOMASK) == DIRT) {
+                put(TOOL_ROAD, x, y);
+            }
+        }
+    }
+    for (int x = ox + 1; x < ox + kWide - 1; ++x) {
+        put(TOOL_WIRE, x, oy + 6);
+    }
+    notify();
+    return true;
+}
+
 void CitySession::disaster_fire()
 {
     engine_->sim.makeFire();
@@ -389,22 +603,12 @@ std::string CitySession::evaluation_text()
 
 std::string CitySession::budget_text() const
 {
-    const Micropolis &sim = engine_->sim;
+    const BudgetBook book = budget();
     std::ostringstream out;
-    const auto pct = [](float value) {
-        int n = static_cast<int>(value * 100.0f + 0.5f);
-        if (n < 0) {
-            n = 0;
-        }
-        if (n > 100) {
-            n = 100;
-        }
-        return n;
-    };
-    out << "Road funding: " << pct(sim.roadPercent) << "%\n"
-        << "Police funding: " << pct(sim.policePercent) << "%\n"
-        << "Fire funding: " << pct(sim.firePercent) << "%\n"
-        << (sim.autoBudget ? "Auto budget is on." : "Auto budget is off.");
+    out << "Road funding: " << book.road_percent << "%\n"
+        << "Police funding: " << book.police_percent << "%\n"
+        << "Fire funding: " << book.fire_percent << "%\n"
+        << (engine_->sim.autoBudget ? "Auto budget is on." : "Auto budget is off.");
     return out.str();
 }
 
@@ -458,6 +662,41 @@ int CitySession::map_value(int x, int y) const
     return engine_->sim.map[x][y];
 }
 
+int CitySession::layer_value(MapLayer layer, int x, int y) const
+{
+    if (!ready_ || !Micropolis::testBounds(x, y)) {
+        return 0;
+    }
+    Micropolis &sim = engine_->sim;
+    const int raw = sim.map[x][y];
+    const int tile = raw & LOMASK;
+    const bool water = (tile >= RIVER && tile <= WATER_HIGH) || (tile >= FLOOD && tile <= LASTFLOOD);
+    switch (layer) {
+    case MapLayer::Water:
+        return water ? 1 : 0;
+    case MapLayer::Power:
+        if (water || tile <= LASTFIRE) {
+            return 0;
+        }
+        if ((raw & ZONEBIT) != 0) {
+            return (raw & PWRBIT) != 0 ? 3 : 2;
+        }
+        if ((raw & CONDBIT) != 0) {
+            return 4;
+        }
+        return 0;
+    case MapLayer::Pollution:
+        return sim.getPollutionDensity(x / 2, y / 2);
+    case MapLayer::Crime:
+        return sim.getCrimeRate(x / 2, y / 2);
+    case MapLayer::LandValue:
+        return sim.getLandValue(x / 2, y / 2);
+    case MapLayer::Traffic:
+        return sim.getTrafficDensity(x / 2, y / 2);
+    }
+    return 0;
+}
+
 unsigned CitySession::map_serial() const
 {
     return static_cast<unsigned>(engine_->sim.mapSerial);
@@ -477,6 +716,13 @@ std::vector<CitySession::SpriteDot> CitySession::sprites() const
         }
         SpriteDot dot;
         dot.type = sprite->type;
+        dot.frame = sprite->frame;
+        dot.x = sprite->x;
+        dot.y = sprite->y;
+        dot.x_offset = sprite->xOffset;
+        dot.y_offset = sprite->yOffset;
+        dot.width = sprite->width;
+        dot.height = sprite->height;
         dot.tile_x = sprite->x >> 4;
         dot.tile_y = sprite->y >> 4;
         dots.push_back(dot);
