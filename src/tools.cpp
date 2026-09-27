@@ -1,0 +1,55 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 The Lunduke City authors
+// See COPYING and NOTICE.
+
+#include "tools.hpp"
+
+#include "micropolis.h"
+
+#include <cassert>
+
+const ToolDef kTools[] = {
+    {TOOL_BULLDOZER, "Bulldozer", 1, "Bulldozer: $1"},
+    {TOOL_ROAD, "Roads", 10, "Roads: $10"},
+    {TOOL_RAILROAD, "Rail", 20, "Rail: $20"},
+    {TOOL_WIRE, "Power lines", 5, "Power lines: $5"},
+    {TOOL_PARK, "Park", 10, "Park: $10"},
+    {TOOL_RESIDENTIAL, "Residential", 100, "Residential: $100"},
+    {TOOL_COMMERCIAL, "Commercial", 100, "Commercial: $100"},
+    {TOOL_INDUSTRIAL, "Industrial", 100, "Industrial: $100"},
+    {TOOL_POLICESTATION, "Police", 500, "Police: $500"},
+    {TOOL_FIRESTATION, "Fire dept", 500, "Fire dept: $500"},
+    {TOOL_STADIUM, "Stadium", 5000, "Stadium: $5,000"},
+    {TOOL_SEAPORT, "Seaport", 3000, "Seaport: $3,000"},
+    {TOOL_COALPOWER, "Coal power", 3000, "Coal power: $3,000"},
+    {TOOL_NUCLEARPOWER, "Nuclear power", 5000, "Nuclear power: $5,000"},
+    {TOOL_AIRPORT, "Airport", 10000, "Airport: $10,000"},
+    {TOOL_QUERY, "Query", 0, "Query"},
+};
+
+const int kToolCount = static_cast<int>(sizeof(kTools) / sizeof(kTools[0]));
+const int kDefaultToolIndex = 3; // Power lines
+
+const ToolDef *tool_by_index(int index)
+{
+    if (index < 0 || index >= kToolCount) {
+        return &kTools[0];
+    }
+    return &kTools[index];
+}
+
+namespace {
+
+struct ToolIdCheck {
+    ToolIdCheck()
+    {
+        assert(TOOL_BULLDOZER == kTools[0].engine_id);
+        assert(TOOL_WIRE == kTools[3].engine_id);
+        assert(TOOL_QUERY == kTools[15].engine_id);
+        assert(kToolCount == 16);
+    }
+};
+
+const ToolIdCheck kToolIdCheck;
+
+} // namespace

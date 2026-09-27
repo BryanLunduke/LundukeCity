@@ -1,0 +1,485 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 The Lunduke City authors
+// See COPYING and NOTICE.
+
+#include "city_session.hpp"
+
+#include "messages.hpp"
+
+#include "micropolis.h"
+
+#include <algorithm>
+#include <cstdarg>
+#include <ctime>
+#include <memory>
+#include <sstream>
+
+namespace {
+
+std::string with_commas(long value)
+{
+    const bool neg = value < 0;
+    unsigned long mag = static_cast<unsigned long>(neg ? -value : value);
+    std::string digits = std::to_string(mag);
+    std::string grouped;
+    int count = 0;
+    for (int i = static_cast<int>(digits.size()) - 1; i >= 0; --i) {
+        if (count > 0 && count % 3 == 0) {
+            grouped.push_back(',');
+        }
+        grouped.push_back(digits[static_cast<std::size_t>(i)]);
+        ++count;
+    }
+    std::reverse(grouped.begin(), grouped.end());
+    return (neg ? "-$" : "$") + grouped;
+}
+
+const char *kMonths[] = {
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+};
+
+const char *city_class_name(CityClass city_class)
+{
+    switch (city_class) {
+    case CC_VILLAGE:
+        return "Village";
+    case CC_TOWN:
+        return "Town";
+    case CC_CITY:
+        return "City";
+    case CC_CAPITAL:
+        return "Capital";
+    case CC_METROPOLIS:
+        return "Metropolis";
+    case CC_MEGALOPOLIS:
+        return "Megalopolis";
+    default:
+        return "Settlement";
+    }
+}
+
+} // namespace
+
+// Held out of the header so the UI translation units do not include the engine.
+struct CitySession::Engine {
+    Micropolis sim;
+};
+
+CitySession::CitySession()
+    : engine_(new Engine)
+{
+    engine_->sim.callbackHook = [](Micropolis * /*sim*/, void *data, const char *name,
+                                   const char *params, va_list args) {
+        auto *self = static_cast<CitySession *>(data);
+        if (self == nullptr) {
+            return;
+        }
+        self->on_callback(name, params, args);
+    };
+    engine_->sim.callbackData = this;
+}
+
+CitySession::~CitySession()
+{
+    engine_->sim.callbackHook = nullptr;
+    engine_->sim.callbackData = nullptr;
+    delete engine_;
+}
+
+void CitySession::set_listener(Listener listener)
+{
+    listener_ = std::move(listener);
+}
+
+void CitySession::notify()
+{
+    if (listener_) {
+        listener_();
+    }
+}
+
+void CitySession::on_callback(const char *name, const char *params, va_list args)
+{
+    const std::string which = name != nullptr ? name : "";
+
+    auto take_string = [&]() -> const char * {
+        const char *s = va_arg(args, char *);
+        return s != nullptr ? s : "";
+    };
+    auto take_int = [&]() { return va_arg(args, int); };
+
+    if (which == "update" && params != nullptr && params[0] == 's') {
+        const std::string kind = take_string();
+        if (kind == "message") {
+            int number = 0;
+            const char *p = params + 1;
+            if (*p == 'd') {
+                number = take_int();
+            }
+            message_ = message_for_number(number);
+            notify();
+        }
+        return;
+    }
+
+    if (which == "showZoneStatus") {
+        int category = 0;
+        int s0 = 0, s1 = 0, s2 = 0, s3 = 0, s4 = 0;
+        const char *p = params != nullptr ? params : "";
+        if (*p == 'd') {
+            category = take_int();
+            ++p;
+        }
+        if (*p == 'd') {
+            s0 = take_int();
+            ++p;
+        }
+        if (*p == 'd') {
+            s1 = take_int();
+            ++p;
+        }
+        if (*p == 'd') {
+            s2 = take_int();
+            ++p;
+        }
+        if (*p == 'd') {
+            s3 = take_int();
+            ++p;
+        }
+        if (*p == 'd') {
+            s4 = take_int();
+        }
+        message_ = zone_status_text(category, s0, s1, s2, s3, s4);
+        notify();
+        return;
+    }
+
+    if (which == "didntLoadCity" || which == "didntSaveCity") {
+        const char *msg = (params != nullptr && params[0] == 's') ? take_string() : "";
+        message_ = std::string(which == "didntLoadCity" ? "Could not load " : "Could not save ") + msg;
+        notify();
+    }
+}
+
+void CitySession::new_city(const std::string &name, int seed)
+{
+    ready_ = false;
+    Micropolis &sim = engine_->sim;
+    // Micropolis::init() (called from the constructor) already ran simInit().
+    // simInit() is private and reallocates history buffers, so a new city
+    // resets funds and options here and lets generateSomeCity() rebuild the map.
+    sim.setGameLevelFunds(LEVEL_EASY);
+    sim.setCityTax(7);
+    sim.setAutoBudget(true);
+    sim.setAutoBulldoze(true);
+    sim.setEnableDisasters(true);
+    const std::string city = name.empty() ? "New City" : name;
+    sim.setCleanCityName(city);
+    sim.setSpeed(static_cast<short>(speed_));
+    sim.setPasses(1);
+    const int used_seed = seed != 0 ? seed : static_cast<int>(std::time(nullptr));
+    sim.generateSomeCity(used_seed);
+    sim.setSpeed(static_cast<short>(speed_));
+    save_path_.clear();
+    message_.clear();
+    ready_ = true;
+    notify();
+}
+
+bool CitySession::load_city(const std::string &path)
+{
+    Micropolis &sim = engine_->sim;
+    if (!sim.loadCity(path.c_str())) {
+        message_ = "Could not load that city file.";
+        notify();
+        return false;
+    }
+    sim.setSpeed(static_cast<short>(speed_));
+    save_path_ = path;
+    ready_ = true;
+    if (message_.empty()) {
+        message_ = "Loaded a saved city.";
+    }
+    notify();
+    return true;
+}
+
+bool CitySession::save_city_as(const std::string &path)
+{
+    message_.clear();
+    // saveCityAs reports failure through the callback hook.
+    engine_->sim.saveCityAs(path.c_str());
+    if (message_.rfind("Could not save", 0) == 0) {
+        return false;
+    }
+    save_path_ = path;
+    message_ = "City saved.";
+    notify();
+    return true;
+}
+
+void CitySession::tick()
+{
+    if (!ready_) {
+        return;
+    }
+    engine_->sim.simTick();
+}
+
+void CitySession::use_tool(int engine_tool, int tile_x, int tile_y)
+{
+    if (!ready_) {
+        return;
+    }
+    engine_->sim.toolDown(static_cast<EditingTool>(engine_tool),
+                          static_cast<short>(tile_x), static_cast<short>(tile_y));
+    notify();
+}
+
+void CitySession::drag_tool(int engine_tool, int from_x, int from_y, int to_x, int to_y)
+{
+    if (!ready_) {
+        return;
+    }
+    engine_->sim.toolDrag(static_cast<EditingTool>(engine_tool),
+                          static_cast<short>(from_x), static_cast<short>(from_y),
+                          static_cast<short>(to_x), static_cast<short>(to_y));
+    notify();
+}
+
+void CitySession::set_speed(int speed)
+{
+    speed_ = std::max(0, std::min(3, speed));
+    if (ready_) {
+        engine_->sim.setSpeed(static_cast<short>(speed_));
+    }
+}
+
+int CitySession::speed() const
+{
+    return speed_;
+}
+
+void CitySession::set_auto_budget(bool on)
+{
+    engine_->sim.setAutoBudget(on);
+}
+
+bool CitySession::auto_budget() const
+{
+    return engine_->sim.autoBudget;
+}
+
+void CitySession::set_auto_bulldoze(bool on)
+{
+    engine_->sim.setAutoBulldoze(on);
+}
+
+bool CitySession::auto_bulldoze() const
+{
+    return engine_->sim.autoBulldoze;
+}
+
+void CitySession::set_disasters(bool on)
+{
+    engine_->sim.setEnableDisasters(on);
+}
+
+bool CitySession::disasters() const
+{
+    return engine_->sim.enableDisasters;
+}
+
+void CitySession::set_tax(int percent)
+{
+    if (percent < 0) {
+        percent = 0;
+    }
+    if (percent > 20) {
+        percent = 20;
+    }
+    engine_->sim.setCityTax(static_cast<short>(percent));
+}
+
+int CitySession::tax() const
+{
+    return engine_->sim.cityTax;
+}
+
+void CitySession::disaster_fire()
+{
+    engine_->sim.makeFire();
+    notify();
+}
+
+void CitySession::disaster_flood()
+{
+    engine_->sim.makeFlood();
+    notify();
+}
+
+void CitySession::disaster_tornado()
+{
+    engine_->sim.makeTornado();
+    notify();
+}
+
+void CitySession::disaster_earthquake()
+{
+    engine_->sim.makeEarthquake();
+    notify();
+}
+
+void CitySession::disaster_monster()
+{
+    engine_->sim.makeMonster();
+    notify();
+}
+
+void CitySession::disaster_meltdown()
+{
+    engine_->sim.makeMeltdown();
+    notify();
+}
+
+std::string CitySession::city_name() const
+{
+    if (engine_->sim.cityName.empty()) {
+        return "New City";
+    }
+    return engine_->sim.cityName;
+}
+
+std::string CitySession::funds_text() const
+{
+    return "Funds: " + with_commas(static_cast<long>(engine_->sim.totalFunds));
+}
+
+std::string CitySession::date_text() const
+{
+    int month = static_cast<int>(engine_->sim.cityMonth);
+    if (month < 0 || month > 11) {
+        month = 0;
+    }
+    const long year = static_cast<long>(engine_->sim.cityYear);
+    return std::string(kMonths[month]) + " " + std::to_string(year > 0 ? year : engine_->sim.startingYear);
+}
+
+std::string CitySession::message() const
+{
+    return message_;
+}
+
+std::string CitySession::evaluation_text()
+{
+    Micropolis &sim = engine_->sim;
+    sim.cityEvaluation();
+    const long population =
+        (static_cast<long>(sim.resPop) + (static_cast<long>(sim.comPop) + sim.indPop) * 8L) * 20L;
+    std::ostringstream out;
+    out << city_class_name(sim.cityClass) << "\n"
+        << "Population: " << population << "\n"
+        << "Residential / Commercial / Industrial: " << sim.resPop << " / " << sim.comPop
+        << " / " << sim.indPop << "\n"
+        << "Score: " << sim.cityScore << "\n"
+        << "Tax: " << sim.cityTax << "%";
+    return out.str();
+}
+
+std::string CitySession::budget_text() const
+{
+    const Micropolis &sim = engine_->sim;
+    std::ostringstream out;
+    const auto pct = [](float value) {
+        int n = static_cast<int>(value * 100.0f + 0.5f);
+        if (n < 0) {
+            n = 0;
+        }
+        if (n > 100) {
+            n = 100;
+        }
+        return n;
+    };
+    out << "Road funding: " << pct(sim.roadPercent) << "%\n"
+        << "Police funding: " << pct(sim.policePercent) << "%\n"
+        << "Fire funding: " << pct(sim.firePercent) << "%\n"
+        << (sim.autoBudget ? "Auto budget is on." : "Auto budget is off.");
+    return out.str();
+}
+
+namespace {
+
+double clamp_unit(float value)
+{
+    if (value < -1.0f) {
+        return -1.0;
+    }
+    if (value > 1.0f) {
+        return 1.0;
+    }
+    return value;
+}
+
+} // namespace
+
+double CitySession::res_demand()
+{
+    float residential = 0;
+    float commercial = 0;
+    float industrial = 0;
+    engine_->sim.getDemands(&residential, &commercial, &industrial);
+    return clamp_unit(residential);
+}
+
+double CitySession::com_demand()
+{
+    float residential = 0;
+    float commercial = 0;
+    float industrial = 0;
+    engine_->sim.getDemands(&residential, &commercial, &industrial);
+    return clamp_unit(commercial);
+}
+
+double CitySession::ind_demand()
+{
+    float residential = 0;
+    float commercial = 0;
+    float industrial = 0;
+    engine_->sim.getDemands(&residential, &commercial, &industrial);
+    return clamp_unit(industrial);
+}
+
+int CitySession::map_value(int x, int y) const
+{
+    if (!ready_ || !Micropolis::testBounds(x, y) || engine_->sim.map[x] == nullptr) {
+        return 0;
+    }
+    return engine_->sim.map[x][y];
+}
+
+unsigned CitySession::map_serial() const
+{
+    return static_cast<unsigned>(engine_->sim.mapSerial);
+}
+
+std::vector<CitySession::SpriteDot> CitySession::sprites() const
+{
+    std::vector<SpriteDot> dots;
+    if (!ready_) {
+        return dots;
+    }
+    int guard = 0;
+    for (SimSprite *sprite = engine_->sim.spriteList; sprite != nullptr && guard < 64;
+         sprite = sprite->next, ++guard) {
+        if (sprite->frame == 0 || sprite->type == SPRITE_NOTUSED) {
+            continue;
+        }
+        SpriteDot dot;
+        dot.type = sprite->type;
+        dot.tile_x = sprite->x >> 4;
+        dot.tile_y = sprite->y >> 4;
+        dots.push_back(dot);
+    }
+    return dots;
+}

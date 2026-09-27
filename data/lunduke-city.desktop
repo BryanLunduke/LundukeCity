@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Lunduke City
+Comment=Build and manage a city
+Exec=lunduke-city
+Icon=lunduke-city
+Terminal=false
+Type=Application
+Categories=Game;Simulation;
+StartupNotify=true
