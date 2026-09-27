@@ -4,8 +4,11 @@
 
 #pragma once
 
+#include "budget_window.hpp"
 #include "map_view.hpp"
+#include "overlay_window.hpp"
 #include "side_widgets.hpp"
+#include "sound_player.hpp"
 #include "tool_palette.hpp"
 
 #include <gtkmm/applicationwindow.h>
@@ -21,6 +24,7 @@
 #include <chrono>
 #include <memory>
 #include <string>
+#include <vector>
 
 class CitySession;
 
@@ -47,7 +51,11 @@ private:
     void on_save_city_as();
     void on_budget();
     void on_evaluation();
+    void on_overlay(CitySession::MapLayer layer);
     void on_about();
+    void prepare_demo_if_requested();
+    void save_widget_png(Gtk::Widget &widget, const char *path);
+    void grab_followup_shots();
 
     bool on_tick();
 
@@ -76,7 +84,12 @@ private:
     Gtk::CheckMenuItem *auto_budget_item_ = nullptr;
     Gtk::CheckMenuItem *auto_bulldoze_item_ = nullptr;
     Gtk::CheckMenuItem *disasters_item_ = nullptr;
+    Gtk::CheckMenuItem *mute_item_ = nullptr;
     Gtk::RadioMenuItem *speed_items_[4] = {nullptr, nullptr, nullptr, nullptr};
+
+    BudgetWindow budget_window_;
+    std::unique_ptr<OverlayWindow> overlays_[6];
+    SoundPlayer sound_;
 
     Glib::RefPtr<Gtk::AccelGroup> accel_;
     Glib::RefPtr<Gtk::SizeGroup> status_ends_;

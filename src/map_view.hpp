@@ -4,11 +4,14 @@
 
 #pragma once
 
+#include <cairomm/surface.h>
 #include <gtkmm/drawingarea.h>
+
+#include <chrono>
 
 class CitySession;
 
-// Top-down city viewport. Tiles are drawn procedurally from engine map words.
+// Top-down city viewport. Tiles are drawn from the Micropolis 16-pixel atlas.
 class MapView : public Gtk::DrawingArea {
 public:
     MapView();
@@ -36,8 +39,11 @@ private:
 
     CitySession *session_ = nullptr;
     int engine_tool_ = 6;
-    int tile_size_ = 10;
+    int tile_size_ = 16;
     bool dragging_ = false;
     int last_x_ = -1;
     int last_y_ = -1;
+    bool blink_on_ = false;
+    std::chrono::steady_clock::time_point blink_stamp_{};
+    Cairo::RefPtr<Cairo::ImageSurface> map_pixels_;
 };

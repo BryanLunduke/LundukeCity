@@ -5,6 +5,7 @@
 #include "side_widgets.hpp"
 
 #include "city_session.hpp"
+#include "tile_atlas.hpp"
 
 #include "micropolis.h"
 
@@ -22,6 +23,11 @@ void fill(const Cairo::RefPtr<Cairo::Context> &cr, double x, double y, double w,
 
 void tile_rgb(int raw, double &r, double &g, double &b)
 {
+    const TileAtlas &atlas = tile_atlas();
+    if (atlas.loaded()) {
+        atlas.average_color(raw & LOMASK, r, g, b);
+        return;
+    }
     const int t = raw & LOMASK;
     if (t >= RIVER && t <= WATER_HIGH) {
         r = 0.06;

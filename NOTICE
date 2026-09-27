@@ -8,10 +8,17 @@ The gtkmm user interface is original to Lunduke City and is also
 GPL-3.0-or-later. The complete GNU GPL version 3 is in the file COPYING.
 
 This tree does not include the upstream Tcl/Tk interface, Python/SWIG
-bindings, DejaVu fonts, images, sounds, or scenario files. Those pieces
-are described in the historical Debian copyright record for Micropolis
-and are not shipped here. The additional terms still apply to the
-engine sources that are included, and to the combined program.
+bindings, DejaVu fonts, or scenario files. Map tiles, sprites, the
+hexa tile resources, and sounds are vendored separately (see below).
+The additional terms apply to the engine sources, to those assets, and
+to the combined program.
+
+In this copyright file the last matching Files paragraph wins, so the
+specific vendored paths are listed after the general paragraph.
+
+Files: *
+Copyright: 2026, The Lunduke City authors
+License: GPL-3+
 
 Files: third_party/micropolis/MicropolisEngine/*
 Copyright: 1989-2007, Electronic Arts Inc.
@@ -25,9 +32,23 @@ Comment:
  These sources are unmodified. Tcl/Tk is not part of this import.
  See third_party/micropolis/README.md.
 
-Files: *
-Copyright: 2026, The Lunduke City authors
+Files: third_party/micropolis-assets/images/*
+       third_party/micropolis-assets/res/*
+Copyright: 1989-2007, Electronic Arts Inc.
+           2007, Don Hopkins <dhopkins@DonHopkins.com>
 License: GPL-3+
+Comment:
+ Vendored unmodified from https://github.com/SimHacker/micropolis
+ commit c98f6b08519887b450d9be198bfca5237aab6d0c
+ paths MicropolisCore/src/images/micropolisEngine/tiles.png,
+ MicropolisCore/src/images/micropolisEngine/obj*.png,
+ MicropolisCore/src/res/hexa.*, and
+ MicropolisCore/src/res/sounds/*.wav.
+ tiles.png is the classic 16-pixel map atlas. The obj images are the
+ sprite frames for trains, ships, aircraft, tornadoes, the monster,
+ and the other mobile entities. The hexa files are the original tile
+ resources. The wav files are the sound effects.
+ These bytes are not modified. See third_party/micropolis-assets/README.md.
 
 License: GPL-3+
  This package is free software; you can redistribute it and/or modify
