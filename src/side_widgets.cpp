@@ -66,19 +66,10 @@ void tile_rgb(int raw, double &r, double &g, double &b)
     }
 }
 
-void inset_frame(const Cairo::RefPtr<Cairo::Context> &cr, double w, double h)
+void paint_theme_background(Gtk::Widget &widget, const Cairo::RefPtr<Cairo::Context> &cr)
 {
-    cr->set_line_width(1);
-    cr->set_source_rgb(0.25, 0.25, 0.25);
-    cr->move_to(0.5, h - 0.5);
-    cr->line_to(0.5, 0.5);
-    cr->line_to(w - 0.5, 0.5);
-    cr->stroke();
-    cr->set_source_rgb(0.98, 0.98, 0.98);
-    cr->move_to(0.5, h - 0.5);
-    cr->line_to(w - 0.5, h - 0.5);
-    cr->line_to(w - 0.5, 0.5);
-    cr->stroke();
+    widget.get_style_context()->render_background(cr, 0, 0, widget.get_allocated_width(),
+                                                  widget.get_allocated_height());
 }
 
 } // namespace
@@ -124,8 +115,7 @@ bool MinimapView::on_draw(const Cairo::RefPtr<Cairo::Context> &cr)
     const double w = get_allocated_width();
     const double h = get_allocated_height();
     cr->set_antialias(Cairo::ANTIALIAS_NONE);
-    fill(cr, 0, 0, w, h, 0.753, 0.753, 0.753);
-    inset_frame(cr, w, h);
+    paint_theme_background(*this, cr);
     const double inner_w = std::max(1.0, w - 6);
     const double inner_h = std::max(1.0, h - 6);
     fill(cr, 3, 3, inner_w, inner_h, 0.86, 0.58, 0.26);
@@ -189,8 +179,7 @@ bool DemandView::on_draw(const Cairo::RefPtr<Cairo::Context> &cr)
     const double w = get_allocated_width();
     const double h = get_allocated_height();
     cr->set_antialias(Cairo::ANTIALIAS_NONE);
-    fill(cr, 0, 0, w, h, 0.753, 0.753, 0.753);
-    inset_frame(cr, w, h);
+    paint_theme_background(*this, cr);
 
     const double demands[3] = {
         session_ != nullptr ? session_->res_demand() : 0,

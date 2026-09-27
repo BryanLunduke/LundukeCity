@@ -278,9 +278,8 @@ bool ToolPalette::on_query_tooltip(int x, int y, bool, const Glib::RefPtr<Gtk::T
 
 bool ToolPalette::on_draw(const Cairo::RefPtr<Cairo::Context> &cr)
 {
-    const int rows = kToolCount / kCols;
     cr->set_antialias(Cairo::ANTIALIAS_NONE);
-    box(cr, 0, 0, kPad * 2 + kCols * kCell, kPad * 2 + rows * kCell, 0.753, 0.753, 0.753);
+    get_style_context()->render_background(cr, 0, 0, get_allocated_width(), get_allocated_height());
 
     for (int i = 0; i < kToolCount; ++i) {
         const int col = i % kCols;

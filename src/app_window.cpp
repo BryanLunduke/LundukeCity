@@ -8,9 +8,7 @@
 #include "tools.hpp"
 
 #include <gdkmm/pixbuf.h>
-#include <gdkmm/screen.h>
 #include <glibmm/main.h>
-#include <gtkmm/cssprovider.h>
 #include <gtkmm/dialog.h>
 #include <gtkmm/entry.h>
 #include <gtkmm/filechooserdialog.h>
@@ -22,59 +20,6 @@
 #include <algorithm>
 #include <cstdlib>
 
-namespace {
-
-const char kCss[] = R"CSS(
-window.background {
-  background-color: #c0c0c0;
-}
-menubar {
-  background-color: #0000aa;
-  background-image: none;
-  border: none;
-  box-shadow: none;
-  padding: 0;
-}
-menubar > menuitem {
-  color: #ffffff;
-  background-color: #0000aa;
-  background-image: none;
-  border-radius: 0;
-  padding: 4px 18px;
-  margin: 0;
-}
-menubar > menuitem:hover,
-menubar > menuitem:active {
-  background-color: #ffffff;
-  color: #0000aa;
-}
-menubar > menuitem label {
-  color: inherit;
-}
-#status-bar,
-#message-bar {
-  background-color: #c0c0c0;
-  border-style: solid;
-  border-width: 2px;
-  border-color: #404040 #f2f2f2 #f2f2f2 #404040;
-}
-#status-bar label,
-#message-bar label {
-  color: #000000;
-  font-weight: bold;
-  font-size: 13px;
-}
-#side-panel {
-  background-color: #c0c0c0;
-  border-right: 2px solid #808080;
-}
-#map-frame {
-  border: 2px solid #404040;
-}
-)CSS";
-
-} // namespace
-
 AppWindow::~AppWindow() = default;
 
 AppWindow::AppWindow()
@@ -82,7 +27,6 @@ AppWindow::AppWindow()
     set_title("Lunduke City");
     set_default_size(1100, 740);
     session_ = std::make_unique<CitySession>();
-    apply_css();
     build_ui();
     build_menus();
     bind_session();
@@ -100,21 +44,6 @@ AppWindow::AppWindow()
     Glib::signal_timeout().connect_once([this] { center_on_fraction(0.5, 0.5); }, 200);
     Glib::signal_timeout().connect_once(sigc::mem_fun(*this, &AppWindow::grab_screenshot_if_requested),
                                         700);
-}
-
-void AppWindow::apply_css()
-{
-    auto css = Gtk::CssProvider::create();
-    try {
-        css->load_from_data(kCss);
-    } catch (const Glib::Error &) {
-        return;
-    }
-    auto screen = Gdk::Screen::get_default();
-    if (screen) {
-        Gtk::StyleContext::add_provider_for_screen(screen, css,
-                                                   GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-    }
 }
 
 void AppWindow::build_ui()

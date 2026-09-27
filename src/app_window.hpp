@@ -32,7 +32,6 @@ public:
 private:
     void build_ui();
     void build_menus();
-    void apply_css();
     void bind_session();
     void refresh();
     void sync_option_checks();
