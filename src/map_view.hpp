@@ -25,6 +25,7 @@ public:
     sigc::signal<void, int, int, int, int> signal_tool_drag;
 
 protected:
+    void on_realize() override;
     bool on_draw(const Cairo::RefPtr<Cairo::Context> &cr) override;
     bool on_button_press_event(GdkEventButton *event) override;
     bool on_button_release_event(GdkEventButton *event) override;

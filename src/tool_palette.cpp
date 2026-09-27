@@ -8,6 +8,9 @@
 
 #include "micropolis.h"
 
+#include <gdkmm/cursor.h>
+#include <gtkmm/tooltip.h>
+
 #include <algorithm>
 
 namespace {
@@ -186,8 +189,18 @@ IconFn icon_for(int engine_id)
 ToolPalette::ToolPalette()
 {
     set_size_request(kPad * 2 + kCols * kCell, kPad * 2 + (kToolCount / kCols) * kCell);
-    add_events(Gdk::BUTTON_PRESS_MASK);
+    add_events(Gdk::BUTTON_PRESS_MASK | Gdk::POINTER_MOTION_MASK | Gdk::LEAVE_NOTIFY_MASK);
+    set_has_tooltip(true);
+    signal_query_tooltip().connect(sigc::mem_fun(*this, &ToolPalette::on_query_tooltip));
     selected_ = kDefaultToolIndex;
+}
+
+void ToolPalette::on_realize()
+{
+    Gtk::DrawingArea::on_realize();
+    if (auto window = get_window()) {
+        window->set_cursor(Gdk::Cursor::create(get_display(), Gdk::HAND2));
+    }
 }
 
 void ToolPalette::set_selected(int index)
@@ -202,6 +215,9 @@ void ToolPalette::set_selected(int index)
 
 int ToolPalette::index_at(double x, double y) const
 {
+    if (x < kPad || y < kPad) {
+        return -1;
+    }
     const int col = static_cast<int>(x - kPad) / kCell;
     const int row = static_cast<int>(y - kPad) / kCell;
     if (col < 0 || row < 0 || col >= kCols) {
@@ -231,38 +247,76 @@ bool ToolPalette::on_button_press_event(GdkEventButton *event)
     return true;
 }
 
+bool ToolPalette::on_motion_notify_event(GdkEventMotion *event)
+{
+    const int index = index_at(event->x, event->y);
+    if (index != hover_) {
+        hover_ = index;
+        queue_draw();
+    }
+    return true;
+}
+
+bool ToolPalette::on_leave_notify_event(GdkEventCrossing *)
+{
+    if (hover_ != -1) {
+        hover_ = -1;
+        queue_draw();
+    }
+    return true;
+}
+
+bool ToolPalette::on_query_tooltip(int x, int y, bool, const Glib::RefPtr<Gtk::Tooltip> &tooltip)
+{
+    const int index = index_at(x, y);
+    if (index < 0) {
+        return false;
+    }
+    tooltip->set_text(tool_by_index(index)->name);
+    return true;
+}
+
 bool ToolPalette::on_draw(const Cairo::RefPtr<Cairo::Context> &cr)
 {
     const int rows = kToolCount / kCols;
     cr->set_antialias(Cairo::ANTIALIAS_NONE);
-    box(cr, 0, 0, kPad * 2 + kCols * kCell, kPad * 2 + rows * kCell, 0.75, 0.75, 0.75);
+    box(cr, 0, 0, kPad * 2 + kCols * kCell, kPad * 2 + rows * kCell, 0.753, 0.753, 0.753);
 
     for (int i = 0; i < kToolCount; ++i) {
         const int col = i % kCols;
         const int row = i / kCols;
-        const double x = kPad + col * kCell;
-        const double y = kPad + row * kCell;
-        const bool on = i == selected_;
-        if (on) {
-            box(cr, x + 1, y + 1, kCell - 2, kCell - 2, 1.0, 0.88, 0.25);
+        const double x = kPad + col * kCell + 1;
+        const double y = kPad + row * kCell + 1;
+        const double bs = kCell - 2;
+        const bool pressed = i == selected_;
+        const bool hover = i == hover_ && !pressed;
+
+        const double light = hover ? 1.0 : 0.96;
+        const double dark = 0.28;
+        const double face_r = pressed ? 1.0 : (hover ? 0.93 : 0.82);
+        const double face_g = pressed ? 0.86 : (hover ? 0.93 : 0.82);
+        const double face_b = pressed ? 0.15 : (hover ? 0.93 : 0.82);
+
+        if (pressed) {
+            box(cr, x, y, bs, bs, dark, dark, dark);
+            box(cr, x + 2, y + bs - 2, bs - 2, 2, light, light, light);
+            box(cr, x + bs - 2, y + 2, 2, bs - 4, light, light, light);
+            box(cr, x + 2, y + 2, bs - 4, bs - 4, face_r, face_g, face_b);
             cr->set_source_rgb(0.05, 0.05, 0.05);
-            cr->set_line_width(2);
-            cr->rectangle(x + 2, y + 2, kCell - 5, kCell - 5);
+            cr->set_line_width(1);
+            cr->rectangle(x + 2.5, y + 2.5, bs - 6, bs - 6);
             cr->stroke();
         } else {
-            box(cr, x + 1, y + 1, kCell - 2, kCell - 2, 0.82, 0.82, 0.82);
-            cr->set_source_rgb(0.98, 0.98, 0.98);
-            cr->move_to(x + 1, y + kCell - 2);
-            cr->line_to(x + 1, y + 1);
-            cr->line_to(x + kCell - 2, y + 1);
-            cr->stroke();
-            cr->set_source_rgb(0.35, 0.35, 0.35);
-            cr->move_to(x + 1, y + kCell - 2);
-            cr->line_to(x + kCell - 2, y + kCell - 2);
-            cr->line_to(x + kCell - 2, y + 1);
-            cr->stroke();
+            box(cr, x, y, bs, bs, light, light, light);
+            box(cr, x, y + bs - 2, bs, 2, dark, dark, dark);
+            box(cr, x + bs - 2, y, 2, bs, dark, dark, dark);
+            box(cr, x + 1, y + bs - 3, bs - 3, 1, 0.50, 0.50, 0.50);
+            box(cr, x + bs - 3, y + 1, 1, bs - 3, 0.50, 0.50, 0.50);
+            box(cr, x + 2, y + 2, bs - 5, bs - 5, face_r, face_g, face_b);
         }
-        icon_for(kTools[i].engine_id)(cr, x + 5, y + 5, kCell - 10);
+
+        const double shift = pressed ? 1.0 : 0.0;
+        icon_for(kTools[i].engine_id)(cr, x + 4 + shift, y + 4 + shift, bs - 10);
     }
     return true;
 }

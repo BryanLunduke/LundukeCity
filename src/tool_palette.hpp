@@ -17,15 +17,21 @@ public:
     sigc::signal<void, int> signal_selected;
 
 protected:
+    void on_realize() override;
     bool on_draw(const Cairo::RefPtr<Cairo::Context> &cr) override;
     bool on_button_press_event(GdkEventButton *event) override;
+    bool on_motion_notify_event(GdkEventMotion *event) override;
+    bool on_leave_notify_event(GdkEventCrossing *event) override;
 
 private:
+    bool on_query_tooltip(int x, int y, bool keyboard_tooltip,
+                          const Glib::RefPtr<Gtk::Tooltip> &tooltip);
     int index_at(double x, double y) const;
 
     static constexpr int kCols = 2;
-    static constexpr int kCell = 34;
+    static constexpr int kCell = 36;
     static constexpr int kPad = 4;
 
     int selected_ = 0;
+    int hover_ = -1;
 };

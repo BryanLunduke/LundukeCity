@@ -17,6 +17,7 @@
 #include <gtkmm/menubar.h>
 #include <gtkmm/radiomenuitem.h>
 #include <gtkmm/scrolledwindow.h>
+#include <gtkmm/sizegroup.h>
 #include <chrono>
 #include <memory>
 #include <string>
@@ -79,6 +80,7 @@ private:
     Gtk::RadioMenuItem *speed_items_[4] = {nullptr, nullptr, nullptr, nullptr};
 
     Glib::RefPtr<Gtk::AccelGroup> accel_;
+    Glib::RefPtr<Gtk::SizeGroup> status_ends_;
     sigc::connection timer_;
     bool updating_checks_ = false;
     int speed_ = 2;

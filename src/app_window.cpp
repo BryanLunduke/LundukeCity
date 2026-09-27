@@ -51,27 +51,22 @@ menubar > menuitem:active {
 menubar > menuitem label {
   color: inherit;
 }
-#status-bar {
-  background-color: #d4d4d4;
-  border-top: 1px solid #808080;
-  border-bottom: 1px solid #606060;
+#status-bar,
+#message-bar {
+  background-color: #c0c0c0;
+  border-style: solid;
+  border-width: 2px;
+  border-color: #404040 #f2f2f2 #f2f2f2 #404040;
 }
-#status-bar label {
+#status-bar label,
+#message-bar label {
   color: #000000;
   font-weight: bold;
   font-size: 13px;
 }
 #side-panel {
   background-color: #c0c0c0;
-}
-#message-bar {
-  background-color: #d4d4d4;
-  border-top: 1px solid #ffffff;
-  border-bottom: 2px solid #808080;
-}
-#message-bar label {
-  color: #000000;
-  font-size: 13px;
+  border-right: 2px solid #808080;
 }
 #map-frame {
   border: 2px solid #404040;
@@ -127,23 +122,41 @@ void AppWindow::build_ui()
     accel_ = Gtk::AccelGroup::create();
     add_accel_group(accel_);
 
-    status_.set_border_width(4);
+    status_.set_border_width(5);
+    status_.set_margin_start(6);
+    status_.set_margin_end(6);
+    status_ends_ = Gtk::SizeGroup::create(Gtk::SIZE_GROUP_HORIZONTAL);
     funds_label_.set_halign(Gtk::ALIGN_START);
+    funds_label_.set_xalign(0);
     name_label_.set_hexpand(true);
     name_label_.set_halign(Gtk::ALIGN_CENTER);
+    name_label_.set_xalign(0.5);
     date_label_.set_halign(Gtk::ALIGN_END);
+    date_label_.set_xalign(1);
+    status_ends_->add_widget(funds_label_);
+    status_ends_->add_widget(date_label_);
     status_.pack_start(funds_label_, Gtk::PACK_SHRINK);
     status_.pack_start(name_label_, Gtk::PACK_EXPAND_WIDGET);
     status_.pack_start(date_label_, Gtk::PACK_SHRINK);
     status_events_.add(status_);
     status_events_.set_name("status-bar");
 
-    side_.set_border_width(4);
+    side_.set_border_width(6);
+    side_.set_spacing(6);
+    side_.set_hexpand(false);
+    side_.set_halign(Gtk::ALIGN_START);
+    tools_.set_hexpand(false);
+    tools_.set_halign(Gtk::ALIGN_START);
+    tools_.set_valign(Gtk::ALIGN_START);
     side_.pack_start(tools_, Gtk::PACK_SHRINK);
     side_.pack_start(minimap_, Gtk::PACK_SHRINK);
     side_.pack_start(demand_, Gtk::PACK_SHRINK);
     side_events_.add(side_);
     side_events_.set_name("side-panel");
+    side_events_.set_hexpand(false);
+    side_events_.set_halign(Gtk::ALIGN_START);
+    side_events_.set_valign(Gtk::ALIGN_FILL);
+    map_frame_.set_hexpand(true);
 
     scroll_.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
     scroll_.set_kinetic_scrolling(false);
@@ -154,8 +167,10 @@ void AppWindow::build_ui()
     map_frame_.set_shadow_type(Gtk::SHADOW_IN);
 
     message_label_.set_halign(Gtk::ALIGN_START);
+    message_label_.set_xalign(0);
     message_label_.set_hexpand(true);
-    message_bar_.set_border_width(4);
+    message_label_.set_margin_start(8);
+    message_bar_.set_border_width(5);
     message_bar_.pack_start(message_label_, Gtk::PACK_EXPAND_WIDGET);
     message_events_.add(message_bar_);
     message_events_.set_name("message-bar");

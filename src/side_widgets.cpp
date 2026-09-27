@@ -24,53 +24,70 @@ void tile_rgb(int raw, double &r, double &g, double &b)
 {
     const int t = raw & LOMASK;
     if (t >= RIVER && t <= WATER_HIGH) {
-        r = 0.12;
-        g = 0.28;
-        b = 0.82;
+        r = 0.06;
+        g = 0.24;
+        b = 0.78;
     } else if (t >= TREEBASE && t <= WOODS5) {
-        r = 0.13;
-        g = 0.52;
-        b = 0.16;
+        r = 0.05;
+        g = 0.48;
+        b = 0.10;
     } else if (t >= RESBASE && t < COMBASE) {
-        r = 0.20;
+        r = 0.16;
         g = 0.62;
-        b = 0.22;
+        b = 0.16;
     } else if (t >= COMBASE && t < INDBASE) {
-        r = 0.25;
-        g = 0.38;
-        b = 0.82;
+        r = 0.28;
+        g = 0.42;
+        b = 0.86;
     } else if (t >= INDBASE && t < PORTBASE) {
-        r = 0.78;
-        g = 0.70;
-        b = 0.18;
-    } else if ((t >= ROADBASE && t <= BRWXXX7) || t == ROADVPOWERH) {
-        r = 0.35;
-        g = 0.35;
-        b = 0.35;
-    } else if (t >= RAILBASE && t <= LASTRAIL) {
-        r = 0.20;
-        g = 0.20;
-        b = 0.22;
-    } else if (t >= POWERBASE && t <= LASTPOWER) {
-        r = 0.90;
-        g = 0.80;
-        b = 0.12;
-    } else if (t >= FIREBASE && t <= LASTFIRE) {
-        r = 0.90;
-        g = 0.25;
+        r = 0.92;
+        g = 0.76;
         b = 0.08;
-    } else {
-        r = 0.76;
-        g = 0.47;
+    } else if ((t >= ROADBASE && t <= BRWXXX7) || t == ROADVPOWERH) {
+        r = 0.16;
+        g = 0.16;
         b = 0.18;
+    } else if (t >= RAILBASE && t <= LASTRAIL) {
+        r = 0.45;
+        g = 0.28;
+        b = 0.10;
+    } else if (t >= POWERBASE && t <= LASTPOWER) {
+        r = 1.0;
+        g = 0.92;
+        b = 0.05;
+    } else if (t >= FIREBASE && t <= LASTFIRE) {
+        r = 0.92;
+        g = 0.18;
+        b = 0.06;
+    } else {
+        r = 0.86;
+        g = 0.58;
+        b = 0.26;
     }
+}
+
+void inset_frame(const Cairo::RefPtr<Cairo::Context> &cr, double w, double h)
+{
+    cr->set_line_width(1);
+    cr->set_source_rgb(0.25, 0.25, 0.25);
+    cr->move_to(0.5, h - 0.5);
+    cr->line_to(0.5, 0.5);
+    cr->line_to(w - 0.5, 0.5);
+    cr->stroke();
+    cr->set_source_rgb(0.98, 0.98, 0.98);
+    cr->move_to(0.5, h - 0.5);
+    cr->line_to(w - 0.5, h - 0.5);
+    cr->line_to(w - 0.5, 0.5);
+    cr->stroke();
 }
 
 } // namespace
 
 MinimapView::MinimapView()
 {
-    set_size_request(76, 66);
+    set_size_request(80, 78);
+    set_hexpand(false);
+    set_halign(Gtk::ALIGN_START);
     add_events(Gdk::BUTTON_PRESS_MASK);
 }
 
@@ -107,30 +124,48 @@ bool MinimapView::on_draw(const Cairo::RefPtr<Cairo::Context> &cr)
     const double w = get_allocated_width();
     const double h = get_allocated_height();
     cr->set_antialias(Cairo::ANTIALIAS_NONE);
-    fill(cr, 0, 0, w, h, 0.15, 0.15, 0.15);
-    const double inner_w = std::max(1.0, w - 4);
-    const double inner_h = std::max(1.0, h - 4);
-    fill(cr, 2, 2, inner_w, inner_h, 0.76, 0.47, 0.18);
+    fill(cr, 0, 0, w, h, 0.753, 0.753, 0.753);
+    inset_frame(cr, w, h);
+    const double inner_w = std::max(1.0, w - 6);
+    const double inner_h = std::max(1.0, h - 6);
+    fill(cr, 3, 3, inner_w, inner_h, 0.86, 0.58, 0.26);
 
     if (session_ != nullptr) {
-        const double tw = inner_w / CitySession::kWorldW;
-        const double th = inner_h / CitySession::kWorldH;
+        auto surface = Cairo::ImageSurface::create(Cairo::FORMAT_RGB24, CitySession::kWorldW,
+                                                   CitySession::kWorldH);
+        auto pic = Cairo::Context::create(surface);
+        pic->set_antialias(Cairo::ANTIALIAS_NONE);
         for (int y = 0; y < CitySession::kWorldH; ++y) {
             for (int x = 0; x < CitySession::kWorldW; ++x) {
                 double r, g, b;
                 tile_rgb(session_->map_value(x, y), r, g, b);
-                fill(cr, 2 + x * tw, 2 + y * th, std::max(1.0, tw), std::max(1.0, th), r, g, b);
+                fill(pic, x, y, 1, 1, r, g, b);
             }
         }
+        surface->flush();
+        cr->save();
+        cr->translate(3, 3);
+        cr->scale(inner_w / CitySession::kWorldW, inner_h / CitySession::kWorldH);
+        cr->set_source(surface, 0, 0);
+        cairo_pattern_set_filter(cairo_get_source(cr->cobj()), CAIRO_FILTER_NEAREST);
+        cr->paint();
+        cr->restore();
     }
 
     if (viewport_) {
         double vx = 0, vy = 0, vw = 1, vh = 1;
         viewport_(vx, vy, vw, vh);
-        cr->set_source_rgb(1, 1, 1);
+        const double rx = 3 + vx * inner_w;
+        const double ry = 3 + vy * inner_h;
+        const double rw = std::max(4.0, vw * inner_w);
+        const double rh = std::max(4.0, vh * inner_h);
+        cr->set_line_width(2);
+        cr->set_source_rgb(0, 0, 0);
+        cr->rectangle(rx, ry, rw, rh);
+        cr->stroke();
         cr->set_line_width(1);
-        cr->rectangle(2 + vx * inner_w, 2 + vy * inner_h, std::max(2.0, vw * inner_w),
-                      std::max(2.0, vh * inner_h));
+        cr->set_source_rgb(1, 1, 1);
+        cr->rectangle(rx + 1.5, ry + 1.5, std::max(1.0, rw - 3), std::max(1.0, rh - 3));
         cr->stroke();
     }
     return true;
@@ -138,7 +173,9 @@ bool MinimapView::on_draw(const Cairo::RefPtr<Cairo::Context> &cr)
 
 DemandView::DemandView()
 {
-    set_size_request(76, 58);
+    set_size_request(80, 84);
+    set_hexpand(false);
+    set_halign(Gtk::ALIGN_START);
 }
 
 void DemandView::set_session(CitySession *session)
@@ -152,7 +189,8 @@ bool DemandView::on_draw(const Cairo::RefPtr<Cairo::Context> &cr)
     const double w = get_allocated_width();
     const double h = get_allocated_height();
     cr->set_antialias(Cairo::ANTIALIAS_NONE);
-    fill(cr, 0, 0, w, h, 0.82, 0.82, 0.82);
+    fill(cr, 0, 0, w, h, 0.753, 0.753, 0.753);
+    inset_frame(cr, w, h);
 
     const double demands[3] = {
         session_ != nullptr ? session_->res_demand() : 0,
@@ -160,40 +198,48 @@ bool DemandView::on_draw(const Cairo::RefPtr<Cairo::Context> &cr)
         session_ != nullptr ? session_->ind_demand() : 0,
     };
     const double colors[3][3] = {
-        {0.15, 0.65, 0.20},
-        {0.20, 0.35, 0.85},
-        {0.85, 0.75, 0.10},
+        {0.05, 0.62, 0.12},
+        {0.12, 0.28, 0.90},
+        {0.95, 0.78, 0.02},
     };
     const char *letters[3] = {"R", "C", "I"};
 
-    const double gap = 6;
+    const double gap = 5;
     const double col_w = (w - gap * 4) / 3.0;
-    const double top = 4;
-    const double meter_h = h - 18;
+    const double top = 6;
+    const double meter_h = h - 24;
     const double mid = top + meter_h / 2.0;
 
     for (int i = 0; i < 3; ++i) {
         const double x = gap + i * (col_w + gap);
-        fill(cr, x, top, col_w, meter_h, 0.25, 0.25, 0.25);
+        fill(cr, x, top, col_w, meter_h, 0.96, 0.96, 0.96);
+        cr->set_source_rgb(0.15, 0.15, 0.15);
+        cr->set_line_width(1);
+        cr->rectangle(x + 0.5, top + 0.5, col_w - 1, meter_h - 1);
+        cr->stroke();
         const double frac = demands[i];
         if (frac >= 0) {
-            const double bh = (meter_h / 2.0) * std::min(1.0, frac);
+            const double bh = (meter_h / 2.0 - 2) * std::min(1.0, frac);
             fill(cr, x + 2, mid - bh, col_w - 4, bh, colors[i][0], colors[i][1], colors[i][2]);
         } else {
-            const double bh = (meter_h / 2.0) * std::min(1.0, -frac);
+            const double bh = (meter_h / 2.0 - 2) * std::min(1.0, -frac);
             fill(cr, x + 2, mid, col_w - 4, bh, colors[i][0], colors[i][1], colors[i][2]);
         }
-        cr->set_source_rgb(0.95, 0.95, 0.95);
-        cr->move_to(x, mid);
-        cr->line_to(x + col_w, mid);
+        cr->set_source_rgb(0.05, 0.05, 0.05);
+        cr->set_line_width(1);
+        cr->move_to(x + 1, mid);
+        cr->line_to(x + col_w - 1, mid);
         cr->stroke();
 
-        cr->set_source_rgb(colors[i][0], colors[i][1], colors[i][2]);
+        const double text_r = i == 2 ? 0.45 : colors[i][0] * 0.65;
+        const double text_g = i == 2 ? 0.32 : colors[i][1] * 0.75;
+        const double text_b = i == 2 ? 0.0 : colors[i][2] * 0.75;
+        cr->set_source_rgb(text_r, text_g, text_b);
         cr->select_font_face("Sans", Cairo::FONT_SLANT_NORMAL, Cairo::FONT_WEIGHT_BOLD);
-        cr->set_font_size(11);
+        cr->set_font_size(13);
         Cairo::TextExtents ext;
         cr->get_text_extents(letters[i], ext);
-        cr->move_to(x + (col_w - ext.width) / 2.0, h - 3);
+        cr->move_to(x + (col_w - ext.width) / 2.0, h - 5);
         cr->show_text(letters[i]);
     }
     return true;

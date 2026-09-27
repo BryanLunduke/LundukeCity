@@ -8,6 +8,8 @@
 
 #include "micropolis.h"
 
+#include <gdkmm/cursor.h>
+
 #include <algorithm>
 
 namespace {
@@ -50,12 +52,22 @@ bool is_wire(int t)
 
 Rgb land_color()
 {
-    return {0.76, 0.47, 0.18};
+    return {0.86, 0.58, 0.26};
 }
 
 Rgb water_color()
 {
-    return {0.12, 0.28, 0.82};
+    return {0.06, 0.24, 0.78};
+}
+
+Rgb road_color()
+{
+    return {0.16, 0.16, 0.18};
+}
+
+Rgb wire_color()
+{
+    return {1.0, 0.92, 0.05};
 }
 
 void paint_links(const Cairo::RefPtr<Cairo::Context> &cr, int px, int py, int s,
@@ -92,6 +104,14 @@ MapView::MapView()
     add_events(Gdk::BUTTON_PRESS_MASK | Gdk::BUTTON_RELEASE_MASK | Gdk::POINTER_MOTION_MASK |
                Gdk::BUTTON1_MOTION_MASK);
     set_tile_size(tile_size_);
+}
+
+void MapView::on_realize()
+{
+    Gtk::DrawingArea::on_realize();
+    if (auto window = get_window()) {
+        window->set_cursor(Gdk::Cursor::create(get_display(), Gdk::CROSSHAIR));
+    }
 }
 
 void MapView::set_session(CitySession *session)
@@ -204,28 +224,28 @@ bool MapView::on_draw(const Cairo::RefPtr<Cairo::Context> &cr)
                                             : water);
             } else if (t >= TREEBASE && t <= WOODS5) {
                 fill(cr, px, py, s, s, dirt);
-                fill(cr, px + s / 5, py + s / 5, std::max(2, s / 2), std::max(2, s / 2),
-                     {0.12, 0.52, 0.16});
+                fill(cr, px + s / 6, py + s / 6, std::max(3, (s * 2) / 3), std::max(3, (s * 2) / 3),
+                     {0.05, 0.48, 0.10});
             } else if (t >= RUBBLE && t <= LASTRUBBLE) {
                 fill(cr, px, py, s, s, {0.45, 0.42, 0.38});
             } else if (t == RADTILE) {
-                fill(cr, px, py, s, s, {0.55, 0.75, 0.20});
+                fill(cr, px, py, s, s, {0.55, 0.85, 0.12});
             } else if (t >= FIREBASE && t <= LASTFIRE) {
-                fill(cr, px, py, s, s, {0.85, 0.25, 0.08});
+                fill(cr, px, py, s, s, {0.92, 0.18, 0.06});
             } else if (t >= RESBASE && t < COMBASE) {
-                fill(cr, px, py, s, s, {0.35, 0.62, 0.22});
+                fill(cr, px, py, s, s, {0.16, 0.62, 0.16});
                 if (t >= HOUSE) {
-                    paint_building(cr, px, py, s, {0.93, 0.93, 0.90}, {0.75, 0.22, 0.18});
+                    paint_building(cr, px, py, s, {0.96, 0.96, 0.94}, {0.78, 0.12, 0.10});
                 } else {
-                    fill(cr, px + s / 3, py + s / 3, std::max(2, s / 3), std::max(2, s / 3),
-                         {0.93, 0.93, 0.90});
+                    fill(cr, px + s / 4, py + s / 4, std::max(2, s / 2), std::max(2, s / 2),
+                         {0.96, 0.96, 0.94});
                 }
             } else if (t >= COMBASE && t < INDBASE) {
-                fill(cr, px, py, s, s, dirt);
-                paint_building(cr, px, py, s, {0.86, 0.88, 0.95}, {0.25, 0.38, 0.78});
+                fill(cr, px, py, s, s, {0.28, 0.42, 0.86});
+                paint_building(cr, px, py, s, {0.92, 0.94, 0.98}, {0.10, 0.22, 0.62});
             } else if (t >= INDBASE && t < PORTBASE) {
-                fill(cr, px, py, s, s, dirt);
-                paint_building(cr, px, py, s, {0.82, 0.74, 0.28}, {0.35, 0.32, 0.28});
+                fill(cr, px, py, s, s, {0.92, 0.76, 0.08});
+                paint_building(cr, px, py, s, {0.32, 0.30, 0.26}, {0.12, 0.12, 0.12});
             } else if (t >= PORTBASE && t < AIRPORTBASE) {
                 fill(cr, px, py, s, s, {0.20, 0.40, 0.70});
                 paint_building(cr, px, py, s, {0.75, 0.78, 0.82}, {0.30, 0.32, 0.36});
@@ -249,46 +269,63 @@ bool MapView::on_draw(const Cairo::RefPtr<Cairo::Context> &cr)
                 fill(cr, px + s / 6, py + s / 5, (s * 2) / 3, (s * 3) / 5, {0.55, 0.82, 0.78});
             } else if (is_road(t)) {
                 fill(cr, px, py, s, s, dirt);
-                const int band = std::max(2, s * 4 / 10);
+                const int band = std::max(3, s / 2);
                 const bool n = y > 0 && road_links(sample(x, y - 1));
                 const bool south = y + 1 < CitySession::kWorldH && road_links(sample(x, y + 1));
                 const bool w = x > 0 && road_links(sample(x - 1, y));
                 const bool e = x + 1 < CitySession::kWorldW && road_links(sample(x + 1, y));
-                paint_links(cr, px, py, s, n, south, w, e, {0.42, 0.42, 0.42}, band);
-                if (!n && !south && !w && !e) {
-                    paint_links(cr, px, py, s, false, false, true, true, {0.42, 0.42, 0.42}, band);
+                const bool any = n || south || w || e;
+                paint_links(cr, px, py, s, n, south, w, e, road_color(), band);
+                if (!any) {
+                    paint_links(cr, px, py, s, false, false, true, true, road_color(), band);
                 }
-                const int mark = std::max(1, band / 3);
-                fill(cr, px + (s - mark) / 2, py + (s - mark) / 2, mark, mark, {0.90, 0.90, 0.90});
+                const int mark = std::max(1, s / 5);
+                const bool horizontal = (w || e) && !(n || south);
+                const bool vertical = (n || south) && !(w || e);
+                if (horizontal || !any) {
+                    fill(cr, px + s / 5, py + (s - mark) / 2, (s * 3) / 5, mark, {0.95, 0.95, 0.95});
+                } else if (vertical) {
+                    fill(cr, px + (s - mark) / 2, py + s / 5, mark, (s * 3) / 5, {0.95, 0.95, 0.95});
+                } else {
+                    fill(cr, px + (s - mark) / 2, py + (s - mark) / 2, mark, mark, {0.95, 0.95, 0.95});
+                }
             } else if (is_rail(t)) {
                 fill(cr, px, py, s, s, dirt);
-                const int band = std::max(2, s / 4);
+                const int bed = std::max(3, s / 3);
+                const int rail = std::max(1, s / 8);
                 const bool n = y > 0 && is_rail(sample(x, y - 1));
                 const bool south = y + 1 < CitySession::kWorldH && is_rail(sample(x, y + 1));
                 const bool w = x > 0 && is_rail(sample(x - 1, y));
                 const bool e = x + 1 < CitySession::kWorldW && is_rail(sample(x + 1, y));
-                paint_links(cr, px, py, s, n, south, w, e, {0.22, 0.22, 0.24}, band);
-                if (!n && !south && !w && !e) {
-                    paint_links(cr, px, py, s, false, false, true, true, {0.22, 0.22, 0.24}, band);
+                const bool any = n || south || w || e;
+                paint_links(cr, px, py, s, n, south, w, e, {0.55, 0.34, 0.12}, bed);
+                paint_links(cr, px, py, s, n, south, w, e, {0.12, 0.12, 0.14}, rail);
+                if (!any) {
+                    paint_links(cr, px, py, s, false, false, true, true, {0.55, 0.34, 0.12}, bed);
+                    paint_links(cr, px, py, s, false, false, true, true, {0.12, 0.12, 0.14}, rail);
                 }
             } else if (is_wire(t)) {
                 fill(cr, px, py, s, s, dirt);
-                const int band = std::max(1, s / 6);
+                const int band = std::max(2, s / 4);
                 const bool n = y > 0 && (is_wire(sample(x, y - 1)) || (session_ && (session_->map_value(x, y - 1) & PWRBIT)));
                 const bool south = y + 1 < CitySession::kWorldH && is_wire(sample(x, y + 1));
                 const bool w = x > 0 && is_wire(sample(x - 1, y));
                 const bool e = x + 1 < CitySession::kWorldW && is_wire(sample(x + 1, y));
-                paint_links(cr, px, py, s, n, south, w, e, {0.92, 0.82, 0.12}, band);
-                if (!n && !south && !w && !e) {
-                    paint_links(cr, px, py, s, false, false, true, true, {0.92, 0.82, 0.12}, band);
+                const bool any = n || south || w || e;
+                paint_links(cr, px, py, s, n, south, w, e, wire_color(), band);
+                if (!any) {
+                    paint_links(cr, px, py, s, false, false, true, true, wire_color(), band);
                 }
+                fill(cr, px + s / 2 - 1, py + s / 2 - 1, std::max(2, s / 5), std::max(2, s / 5),
+                     {0.20, 0.12, 0.05});
             } else {
                 fill(cr, px, py, s, s, dirt);
             }
 
             if (powered && s >= 8 && t >= RESBASE && t <= LASTZONE) {
-                fill(cr, px + s - std::max(2, s / 5) - 1, py + 1, std::max(2, s / 5),
-                     std::max(2, s / 5), {0.98, 0.86, 0.15});
+                const int pip = std::max(3, s / 4);
+                fill(cr, px + s - pip - 1, py + 1, pip, pip, {0.05, 0.05, 0.05});
+                fill(cr, px + s - pip, py + 2, pip - 2, pip - 2, {1.0, 0.92, 0.10});
             }
         }
     }
