@@ -1,7 +1,7 @@
 # Lunduke City
 
 Lunduke City is a windowed city-building game for LCOS. Version 0.7
-(Debian package 0.7-3, Meson project version 0.7.3) is the LCOS 0.7
+(Debian package 0.7-4, Meson project version 0.7.4) is the LCOS 0.7
 release track: classic menu / funds / tool-palette / map layout, wired
 to the Micropolis simulation engine. The map uses the Micropolis
 16-pixel tiles, and trains, ships, aircraft, tornadoes, and the monster
@@ -37,6 +37,17 @@ hicolor PNGs at 16, 32, 48, 64, 128, and 256).
 engine fixes (problem votes and sprite cleanup), plus budget funding,
 overlay samples, tile animation, a sprite report, and sound startup
 (playback is skipped cleanly when no audio device is available).
+
+## What 0.7-4 fixes
+
+- New City seed is an entry field: blank or auto takes a seed from the
+  clock; any other whole number is used as the seed. Typed values are
+  read when you leave the field or press Next, so generation no longer
+  ignores a seed that was still focused.
+- Ctrl+= and Ctrl+- zoom the map when the map itself has focus, not only
+  via the window accelerators.
+- Query opens a zone report dialog and keeps the same text on the
+  message bar.
 
 ## What 0.7-3 fixes
 

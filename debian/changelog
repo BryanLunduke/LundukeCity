@@ -1,3 +1,16 @@
+lunduke-city (0.7-4) unstable; urgency=medium
+
+  * LCOS 0.7-4 on the 0.7 track. New City seed is an entry field that
+    reads a typed value on Next (blank or auto uses the clock). Ctrl+=
+    and Ctrl+- zoom when the map has focus. Query opens a zone report
+    and keeps the text on the message bar.
+  * Keeps the 0.7-3 tile animation and engine fixes, the 0.7-2 New City
+    wizard, graphs, evaluation, rename, and About dialog, and the
+    0.3 / 0.7-1 map, sprites, budget, sound, overlays, placement
+    preview, Play Scenario, and icon.
+
+ -- LCOS <lcos@lunduke.com>  Mon, 28 Sep 2026 23:30:00 +0000
+
 lunduke-city (0.7-3) unstable; urgency=medium
 
   * LCOS 0.7-3 on the 0.7 track. Each session tick animates map tiles
