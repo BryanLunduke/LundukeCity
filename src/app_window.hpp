@@ -5,6 +5,8 @@
 #pragma once
 
 #include "budget_window.hpp"
+#include "evaluation_window.hpp"
+#include "graphs_window.hpp"
 #include "map_view.hpp"
 #include "overlay_window.hpp"
 #include "side_widgets.hpp"
@@ -51,7 +53,9 @@ private:
     void on_save_city();
     void on_save_city_as();
     void on_play_scenario();
+    void on_rename_city();
     void on_budget();
+    void on_graphs();
     void on_evaluation();
     void on_overlay(CitySession::MapLayer layer);
     void on_about();
@@ -91,6 +95,8 @@ private:
     Gtk::RadioMenuItem *speed_items_[4] = {nullptr, nullptr, nullptr, nullptr};
 
     BudgetWindow budget_window_;
+    GraphsWindow graphs_window_;
+    EvaluationWindow evaluation_window_;
     std::unique_ptr<OverlayWindow> overlays_[6];
     SoundPlayer sound_;
 

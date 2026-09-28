@@ -81,6 +81,27 @@ const ScenarioEntry kScenarios[] = {
 static_assert(sizeof(kScenarios) / sizeof(kScenarios[0]) == CitySession::kScenarioCount,
               "scenario catalog size");
 static_assert(SC_DULLSVILLE == 1 && SC_RIO == 8, "scenario ids");
+static_assert(static_cast<int>(LEVEL_EASY) == CitySession::kLevelEasy, "easy level");
+static_assert(static_cast<int>(LEVEL_MEDIUM) == CitySession::kLevelMedium, "medium level");
+static_assert(static_cast<int>(LEVEL_HARD) == CitySession::kLevelHard, "hard level");
+static_assert(static_cast<int>(HISTORY_TYPE_RES) == static_cast<int>(CitySession::HistorySeries::Residential),
+              "residential history");
+static_assert(static_cast<int>(HISTORY_TYPE_COM) == static_cast<int>(CitySession::HistorySeries::Commercial),
+              "commercial history");
+static_assert(static_cast<int>(HISTORY_TYPE_IND) == static_cast<int>(CitySession::HistorySeries::Industrial),
+              "industrial history");
+static_assert(static_cast<int>(HISTORY_TYPE_MONEY) == static_cast<int>(CitySession::HistorySeries::CashFlow),
+              "cash-flow history");
+static_assert(static_cast<int>(HISTORY_TYPE_CRIME) == static_cast<int>(CitySession::HistorySeries::Crime),
+              "crime history");
+static_assert(static_cast<int>(HISTORY_TYPE_POLLUTION) == static_cast<int>(CitySession::HistorySeries::Pollution),
+              "pollution history");
+static_assert(static_cast<int>(HISTORY_SCALE_SHORT) == static_cast<int>(CitySession::HistoryScale::Short),
+              "short history");
+static_assert(static_cast<int>(HISTORY_SCALE_LONG) == static_cast<int>(CitySession::HistoryScale::Long),
+              "long history");
+static_assert(HISTORY_COUNT == CitySession::kHistoryPoints, "history length");
+static_assert(CVP_CRIME == 0 && CVP_FIRE == 6 && CVP_NUMPROBLEMS == 7, "problem ids");
 
 } // namespace
 
@@ -212,28 +233,91 @@ void CitySession::on_callback(const char *name, const char *params, va_list args
 
 void CitySession::new_city(const std::string &name, int seed)
 {
+    NewCitySpec spec;
+    spec.name = name;
+    spec.seed = seed;
+    new_city(spec);
+}
+
+void CitySession::new_city(const NewCitySpec &spec)
+{
     ready_ = false;
     Micropolis &sim = engine_->sim;
     // Micropolis::init() (called from the constructor) already ran simInit().
     // simInit() is private and reallocates history buffers, so a new city
-    // resets funds and options here and lets generateSomeCity() rebuild the map.
-    sim.setGameLevelFunds(LEVEL_EASY);
+    // sets the terrain knobs, lets generateSomeCity() rebuild the map, then
+    // applies the difficulty funds. generateMap() reads these fields directly.
+    sim.terrainCreateIsland = spec.island;
+    sim.terrainCurveLevel = spec.rivers;
+    sim.terrainLakeLevel = spec.lakes;
+    sim.terrainTreeLevel = spec.trees;
     sim.setCityTax(7);
     sim.setAutoBudget(true);
     sim.setAutoBulldoze(true);
     sim.setEnableDisasters(true);
-    const std::string city = name.empty() ? "New City" : name;
+    const std::string city = spec.name.empty() ? "New City" : spec.name;
     sim.setCleanCityName(city);
     sim.setSpeed(static_cast<short>(speed_));
     sim.setPasses(1);
-    const int used_seed = seed != 0 ? seed : static_cast<int>(std::time(nullptr));
+    const int used_seed = spec.seed != 0 ? spec.seed : static_cast<int>(std::time(nullptr));
     sim.generateSomeCity(used_seed);
+    int level = spec.difficulty;
+    if (level < kLevelEasy || level > kLevelHard) {
+        level = kLevelEasy;
+    }
+    sim.setGameLevelFunds(static_cast<GameLevel>(level));
     sim.setSpeed(static_cast<short>(speed_));
     sim.setEnableSound(sound_enabled_);
     save_path_.clear();
     message_.clear();
     ready_ = true;
     notify();
+}
+
+void CitySession::rename_city(const std::string &name)
+{
+    std::string clean;
+    clean.reserve(name.size());
+    bool pending_space = false;
+    for (unsigned char ch : name) {
+        if (ch == ' ' || ch == '\t') {
+            if (!clean.empty()) {
+                pending_space = true;
+            }
+            continue;
+        }
+        if (ch < 32) {
+            continue;
+        }
+        if (pending_space) {
+            clean.push_back(' ');
+            pending_space = false;
+        }
+        clean.push_back(static_cast<char>(ch));
+        if (clean.size() >= 48) {
+            break;
+        }
+    }
+    if (clean.empty()) {
+        return;
+    }
+    engine_->sim.setCleanCityName(clean);
+    notify();
+}
+
+int CitySession::difficulty() const
+{
+    return static_cast<int>(engine_->sim.gameLevel);
+}
+
+long CitySession::funds() const
+{
+    return static_cast<long>(engine_->sim.totalFunds);
+}
+
+int CitySession::generated_seed() const
+{
+    return engine_->sim.generatedCitySeed;
 }
 
 bool CitySession::load_city(const std::string &path)
@@ -658,18 +742,74 @@ std::string CitySession::message() const
 
 std::string CitySession::evaluation_text()
 {
-    Micropolis &sim = engine_->sim;
-    sim.cityEvaluation();
-    const long population =
-        (static_cast<long>(sim.resPop) + (static_cast<long>(sim.comPop) + sim.indPop) * 8L) * 20L;
+    update_evaluation();
+    const Evaluation report = evaluation();
     std::ostringstream out;
-    out << city_class_name(sim.cityClass) << "\n"
-        << "Population: " << population << "\n"
-        << "Residential / Commercial / Industrial: " << sim.resPop << " / " << sim.comPop
-        << " / " << sim.indPop << "\n"
-        << "Score: " << sim.cityScore << "\n"
-        << "Tax: " << sim.cityTax << "%";
+    out << report.category << "\n"
+        << "Population: " << report.population << "\n"
+        << "Score: " << report.score << "\n"
+        << "Yes: " << report.yes_percent << "%";
     return out.str();
+}
+
+int CitySession::history_value(HistorySeries series, HistoryScale scale, int index) const
+{
+    return engine_->sim.getHistory(static_cast<int>(series), static_cast<int>(scale), index);
+}
+
+void CitySession::update_evaluation()
+{
+    engine_->sim.cityEvaluation();
+}
+
+CitySession::Evaluation CitySession::evaluation() const
+{
+    const Micropolis &sim = engine_->sim;
+    Evaluation report;
+    report.score = sim.cityScore;
+    report.score_delta = sim.cityScoreDelta;
+    report.yes_percent = sim.cityYes;
+    if (report.yes_percent < 0) {
+        report.yes_percent = 0;
+    }
+    if (report.yes_percent > 100) {
+        report.yes_percent = 100;
+    }
+    report.population = sim.cityPop < 0 ? 0 : static_cast<long>(sim.cityPop);
+    report.migration = static_cast<long>(sim.cityPopDelta);
+    report.assessed_value = static_cast<long>(sim.cityAssessedValue);
+    report.category = city_class_name(sim.cityClass);
+    report.year = static_cast<int>(sim.cityYear > 0 ? sim.cityYear : sim.startingYear);
+    switch (sim.gameLevel) {
+    case LEVEL_MEDIUM:
+        report.difficulty = "Medium";
+        break;
+    case LEVEL_HARD:
+        report.difficulty = "Hard";
+        break;
+    case LEVEL_EASY:
+    default:
+        report.difficulty = "Easy";
+        break;
+    }
+
+    static const char *kProblems[] = {
+        "Crime", "Pollution", "Housing", "Taxes", "Traffic", "Unemployment", "Fire",
+    };
+    for (int i = 0; i < CVP_PROBLEM_COMPLAINTS; ++i) {
+        const int which = sim.problemOrder[i];
+        if (which < 0 || which >= CVP_NUMPROBLEMS) {
+            break;
+        }
+        Problem problem;
+        problem.name = kProblems[which];
+        problem.votes = sim.problemVotes[which];
+        if (problem.votes < 0) {
+            problem.votes = 0;
+        }
+        report.problems.push_back(problem);
+    }
+    return report;
 }
 
 std::string CitySession::budget_text() const

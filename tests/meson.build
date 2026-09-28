@@ -16,7 +16,10 @@ features = executable(
   '../src/tools.cpp',
   include_directories: include_directories('../src'),
   dependencies: [micropolis_dep, thread_dep],
-  cpp_args: '-DLUNDUKE_CITY_ASSET_DIR="' + lunduke_asset_dir + '"',
+  cpp_args: [
+    '-DLUNDUKE_CITY_ASSET_DIR="' + lunduke_asset_dir + '"',
+    '-DLUNDUKE_CITY_PACKAGE_VERSION="0.7-2"',
+  ],
 )
 
 test('features', features)

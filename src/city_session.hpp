@@ -79,10 +79,47 @@ public:
     static constexpr int kScenarioCount = 8;
     static const ScenarioDef &scenario_def(int index);
 
+    // Difficulty is the engine GameLevel: easy $20,000, medium $10,000,
+    // hard $5,000. It also changes the tax and road-cost tables.
+    static constexpr int kLevelEasy = 0;
+    static constexpr int kLevelMedium = 1;
+    static constexpr int kLevelHard = 2;
+
+    // Terrain knobs are the engine fields used by generateMap().
+    // -1 is the generator default. 0 turns that feature off.
+    // Island 1 always builds an island (the only other value the engine reads).
+    static constexpr int kTerrainDefault = -1;
+    static constexpr int kTerrainOff = 0;
+    static constexpr int kIslandAlways = 1;
+    // Curve level above 0 makes rivers turn more often than the default rates.
+    static constexpr int kRiversCurvy = 200;
+    // Non-negative lake level is a lake count times two (20 => 10 lakes).
+    static constexpr int kLakesMany = 20;
+    // Non-negative tree level: splash count is level + 3 (197 => 200 splashes).
+    static constexpr int kTreesWooded = 197;
+
+    struct NewCitySpec {
+        std::string name;
+        int seed = 0;
+        int difficulty = kLevelEasy;
+        int island = kTerrainDefault;
+        int rivers = kTerrainDefault;
+        int lakes = kTerrainDefault;
+        int trees = kTerrainDefault;
+    };
+
+    // seed 0 asks the engine path to draw a seed from the clock.
+    // The two-argument form keeps the historical easy / default-terrain city.
     void new_city(const std::string &name, int seed = 0);
+    void new_city(const NewCitySpec &spec);
     bool load_city(const std::string &path);
     bool save_city_as(const std::string &path);
     bool load_scenario(int id);
+    void rename_city(const std::string &name);
+
+    int difficulty() const;
+    long funds() const;
+    int generated_seed() const;
 
     void tick();
     void use_tool(int engine_tool, int tile_x, int tile_y);
@@ -129,6 +166,44 @@ public:
     std::string message() const;
     std::string evaluation_text();
     std::string budget_text() const;
+
+    // Engine history tables. Index 0 is the newest sample.
+    // Short is 120 monthly samples (10 years). Long is 120 yearly samples.
+    enum class HistorySeries {
+        Residential = 0,
+        Commercial,
+        Industrial,
+        CashFlow,
+        Crime,
+        Pollution,
+    };
+    enum class HistoryScale {
+        Short = 0,
+        Long = 1,
+    };
+    static constexpr int kHistoryPoints = 120;
+    int history_value(HistorySeries series, HistoryScale scale, int index) const;
+
+    // Public-opinion and score data from the last cityEvaluation().
+    // update_evaluation() runs that pass; evaluation() only reads it.
+    struct Problem {
+        std::string name;
+        int votes = 0;
+    };
+    struct Evaluation {
+        int year = 0;
+        int score = 0;
+        int score_delta = 0;
+        int yes_percent = 0;
+        long population = 0;
+        long migration = 0;
+        long assessed_value = 0;
+        std::string category;
+        std::string difficulty;
+        std::vector<Problem> problems;
+    };
+    void update_evaluation();
+    Evaluation evaluation() const;
 
     // Demand in the range -1..1 (shortage to surplus is negative..positive).
     double res_demand();
