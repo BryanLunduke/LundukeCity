@@ -618,7 +618,7 @@ void AppWindow::on_evaluation()
 
 void AppWindow::on_about()
 {
-    Gtk::MessageDialog dialog(*this, "Lunduke City 0.3", false, Gtk::MESSAGE_INFO, Gtk::BUTTONS_OK,
+    Gtk::MessageDialog dialog(*this, "Lunduke City 0.7", false, Gtk::MESSAGE_INFO, Gtk::BUTTONS_OK,
                               true);
     dialog.set_secondary_text(
         "A city-building game. The simulation and the 16-pixel tiles, sprites, "
