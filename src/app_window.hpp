@@ -16,6 +16,7 @@
 #include <gtkmm/applicationwindow.h>
 #include <gtkmm/box.h>
 #include <gtkmm/checkmenuitem.h>
+#include <gtkmm/dialog.h>
 #include <gtkmm/eventbox.h>
 #include <gtkmm/frame.h>
 #include <gtkmm/label.h>
@@ -42,9 +43,11 @@ private:
     void refresh();
     void sync_option_checks();
     void show_tool_hint();
+    void clear_transient_message();
     void set_speed(int speed);
     void center_on_fraction(double fx, double fy);
     void zoom_by(int delta);
+    void show_query_dialog(const std::string &text);
     void grab_screenshot_if_requested();
     void probe_zoom_if_requested();
 
@@ -108,4 +111,7 @@ private:
     std::string tool_hint_ = "Power lines: $5";
     std::string shown_engine_message_;
     std::chrono::steady_clock::time_point hint_after_{};
+    std::unique_ptr<Gtk::Dialog> query_dialog_;
+    Gtk::Label *query_body_ = nullptr;
+    int shown_query_serial_ = 0;
 };

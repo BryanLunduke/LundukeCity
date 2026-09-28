@@ -53,8 +53,9 @@ overlay samples, tile animation, a sprite report, and sound startup
 - System → New City is a three-step wizard: name, then difficulty,
   terrain, and seed, then generate. Difficulty is the engine game level
   (easy $20,000, medium $10,000, hard $5,000). Terrain choices are the
-  generator's island, river, lake, and tree controls. The seed is passed
-  to `generateSomeCity` (0 takes one from the clock).
+  generator's island, river, lake, and tree controls. The seed field is
+  passed to `generateSomeCity`. Leave it blank, or type auto, to take one
+  from the clock. Any other whole number is the seed.
 - Windows → Graphs charts population (from the residential, commercial,
   and industrial histories), cash flow, crime, and pollution for the
   10-year and 120-year engine scales. It keeps updating while the city runs.
@@ -67,8 +68,8 @@ overlay samples, tile animation, a sprite report, and sound startup
 
 ## What 0.3 adds
 
-- Options → Zoom in is Ctrl and the +/= key, with no Shift. Keypad plus
-  and Ctrl-minus still zoom.
+- Options → Zoom in is Ctrl and the +/= key, with no Shift (Ctrl+=).
+  Ctrl and the minus key (Ctrl+-) zooms out. Keypad plus and minus do too.
 - The map outlines the footprint of the selected build tool under the
   pointer (zones, roads, rail, wire, park, bulldozer, and the other
   placeable tools). Query does not.

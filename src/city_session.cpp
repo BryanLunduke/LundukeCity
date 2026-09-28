@@ -204,6 +204,7 @@ void CitySession::on_callback(const char *name, const char *params, va_list args
             s4 = take_int();
         }
         message_ = zone_status_text(category, s0, s1, s2, s3, s4);
+        ++query_serial_;
         notify();
         return;
     }
@@ -236,6 +237,8 @@ void CitySession::new_city(const std::string &name, int seed)
     NewCitySpec spec;
     spec.name = name;
     spec.seed = seed;
+    // The historical call treats 0 as "choose from the clock".
+    spec.seed_was_set = seed != 0;
     new_city(spec);
 }
 
@@ -259,7 +262,11 @@ void CitySession::new_city(const NewCitySpec &spec)
     sim.setCleanCityName(city);
     sim.setSpeed(static_cast<short>(speed_));
     sim.setPasses(1);
-    const int used_seed = spec.seed != 0 ? spec.seed : static_cast<int>(std::time(nullptr));
+    // An explicit seed, including 0, is passed through. Clock/auto is only
+    // the unset case (seed 0 and seed_was_set false).
+    const int used_seed = (spec.seed == 0 && !spec.seed_was_set)
+                              ? static_cast<int>(std::time(nullptr))
+                              : spec.seed;
     sim.generateSomeCity(used_seed);
     int level = spec.difficulty;
     if (level < kLevelEasy || level > kLevelHard) {

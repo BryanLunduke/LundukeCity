@@ -101,6 +101,10 @@ public:
     struct NewCitySpec {
         std::string name;
         int seed = 0;
+        // False with seed 0 means "pick from the clock", which is what the
+        // two-argument new_city() still does. True uses seed as written,
+        // including 0.
+        bool seed_was_set = false;
         int difficulty = kLevelEasy;
         int island = kTerrainDefault;
         int rivers = kTerrainDefault;
@@ -164,6 +168,9 @@ public:
     std::string funds_text() const;
     std::string date_text() const;
     std::string message() const;
+    // Bumps once per query-tool report so the window can open feedback
+    // even when the text matches the previous tile.
+    int query_serial() const { return query_serial_; }
     std::string evaluation_text();
     std::string budget_text() const;
 
@@ -229,6 +236,7 @@ private:
     void set_service_funding(int kind, int percent);
 
     std::string message_;
+    int query_serial_ = 0;
     std::string save_path_;
     std::vector<std::string> sounds_;
     bool budget_requested_ = false;
