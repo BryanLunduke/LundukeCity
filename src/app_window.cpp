@@ -6,27 +6,42 @@
 
 #include "city_session.hpp"
 #include "tools.hpp"
+#include "zoom_keys.hpp"
 
 #include "micropolis.h"
 
 #include <gdkmm/pixbuf.h>
 #include <glibmm/main.h>
+#include <gtk/gtk.h>
 #include <gtkmm/dialog.h>
 #include <gtkmm/entry.h>
 #include <gtkmm/filechooserdialog.h>
 #include <gtkmm/filefilter.h>
+#include <gtkmm/liststore.h>
 #include <gtkmm/messagedialog.h>
 #include <gtkmm/separatormenuitem.h>
 #include <gtkmm/spinbutton.h>
+#include <gtkmm/treeview.h>
 
 #include <algorithm>
 #include <cstdlib>
+#include <fstream>
+
+static_assert(static_cast<unsigned>(GDK_KEY_equal) == 0x03d, "equal keysym");
+static_assert(static_cast<unsigned>(GDK_KEY_plus) == 0x02b, "plus keysym");
+static_assert(static_cast<unsigned>(GDK_KEY_KP_Add) == 0xffab, "keypad plus");
+static_assert(static_cast<unsigned>(GDK_KEY_minus) == 0x02d, "minus keysym");
+static_assert(static_cast<unsigned>(GDK_KEY_KP_Subtract) == 0xffad, "keypad minus");
+static_assert(static_cast<unsigned>(Gdk::CONTROL_MASK) == 4u, "control mask");
+static_assert(static_cast<unsigned>(Gdk::MOD1_MASK) == 8u, "alt mask");
 
 AppWindow::~AppWindow() = default;
 
 AppWindow::AppWindow()
 {
     set_title("Lunduke City");
+    // Reinforce default icon for WMs that ignore gtk_window_set_default_icon_name.
+    set_icon_name("lunduke-city");
     set_default_size(1100, 740);
     session_ = std::make_unique<CitySession>();
     const CitySession::MapLayer layers[] = {
@@ -145,6 +160,7 @@ void AppWindow::build_menus()
     add_item(system_menu, "_Load City...", GDK_KEY_o, sigc::mem_fun(*this, &AppWindow::on_load_city));
     add_item(system_menu, "_Save City", GDK_KEY_s, sigc::mem_fun(*this, &AppWindow::on_save_city));
     add_item(system_menu, "Save City _As...", 0, sigc::mem_fun(*this, &AppWindow::on_save_city_as));
+    add_item(system_menu, "Play _Scenario…", 0, sigc::mem_fun(*this, &AppWindow::on_play_scenario));
     system_menu->append(*Gtk::manage(new Gtk::SeparatorMenuItem()));
     add_item(system_menu, "_Quit", GDK_KEY_q, [this] { hide(); });
     menu_bar_.append(*system);
@@ -170,8 +186,23 @@ void AppWindow::build_menus()
         options_menu->append(*speed_items_[i]);
     }
     options_menu->append(*Gtk::manage(new Gtk::SeparatorMenuItem()));
-    add_item(options_menu, "Zoom _in", GDK_KEY_plus, [this] { zoom_by(2); });
-    add_item(options_menu, "Zoom _out", GDK_KEY_minus, [this] { zoom_by(-2); });
+    // Zoom in: the visible shortcut is Ctrl and the +/= key with no Shift
+    // (GDK_KEY_equal). Also keep the shifted plus keysym and keypad plus.
+    // Zoom out stays on Ctrl-minus and keypad minus.
+    auto *zoom_in = Gtk::manage(new Gtk::MenuItem("Zoom _in", true));
+    zoom_in->signal_activate().connect([this] { zoom_by(2); });
+    // The menu shows Ctrl+= (the +/= key, no Shift). Keypad plus and the
+    // shifted plus keysym stay wired, without replacing that label.
+    const auto hidden = static_cast<Gtk::AccelFlags>(0);
+    zoom_in->add_accelerator("activate", accel_, GDK_KEY_equal, Gdk::CONTROL_MASK, Gtk::ACCEL_VISIBLE);
+    zoom_in->add_accelerator("activate", accel_, GDK_KEY_plus, Gdk::CONTROL_MASK, hidden);
+    zoom_in->add_accelerator("activate", accel_, GDK_KEY_KP_Add, Gdk::CONTROL_MASK, hidden);
+    options_menu->append(*zoom_in);
+    auto *zoom_out = Gtk::manage(new Gtk::MenuItem("Zoom _out", true));
+    zoom_out->signal_activate().connect([this] { zoom_by(-2); });
+    zoom_out->add_accelerator("activate", accel_, GDK_KEY_minus, Gdk::CONTROL_MASK, Gtk::ACCEL_VISIBLE);
+    zoom_out->add_accelerator("activate", accel_, GDK_KEY_KP_Subtract, Gdk::CONTROL_MASK, hidden);
+    options_menu->append(*zoom_out);
     menu_bar_.append(*options);
 
     auto *disasters_menu = Gtk::manage(new Gtk::Menu());
@@ -358,6 +389,23 @@ bool AppWindow::on_tick()
     return true;
 }
 
+bool AppWindow::on_key_press_event(GdkEventKey *event)
+{
+    if (event != nullptr) {
+        // Shift is not required. Ctrl and the +/= key arrives as GDK_KEY_equal.
+        const ZoomAction action = zoom_action(event->keyval, event->state);
+        if (action == ZoomAction::In) {
+            zoom_by(2);
+            return true;
+        }
+        if (action == ZoomAction::Out) {
+            zoom_by(-2);
+            return true;
+        }
+    }
+    return Gtk::ApplicationWindow::on_key_press_event(event);
+}
+
 void AppWindow::on_new_city()
 {
     Gtk::Dialog dialog("New City", *this, true);
@@ -450,6 +498,103 @@ void AppWindow::on_save_city_as()
     refresh();
 }
 
+void AppWindow::on_play_scenario()
+{
+    class Columns : public Gtk::TreeModel::ColumnRecord {
+    public:
+        Columns()
+        {
+            add(id);
+            add(scenario);
+            add(notes);
+        }
+        Gtk::TreeModelColumn<int> id;
+        Gtk::TreeModelColumn<Glib::ustring> scenario;
+        Gtk::TreeModelColumn<Glib::ustring> notes;
+    };
+
+    Columns columns;
+    auto store = Gtk::ListStore::create(columns);
+    for (int i = 0; i < CitySession::kScenarioCount; ++i) {
+        const CitySession::ScenarioDef &def = CitySession::scenario_def(i);
+        auto row = *store->append();
+        row[columns.id] = def.id;
+        row[columns.scenario] = Glib::ustring(def.name) + " (" + std::to_string(def.year) + ")";
+        row[columns.notes] = def.summary;
+    }
+
+    Gtk::Dialog dialog("Play Scenario", *this, true);
+    dialog.add_button("_Cancel", Gtk::RESPONSE_CANCEL);
+    dialog.add_button("_Play", Gtk::RESPONSE_OK);
+    dialog.set_default_response(Gtk::RESPONSE_OK);
+    dialog.set_default_size(560, 420);
+
+    auto *intro = Gtk::manage(new Gtk::Label(
+        "Choose a scenario. Playing it replaces the city on the map."));
+    intro->set_halign(Gtk::ALIGN_START);
+    intro->set_line_wrap(true);
+    intro->set_max_width_chars(52);
+
+    auto *view = Gtk::manage(new Gtk::TreeView(store));
+    view->append_column("Scenario", columns.scenario);
+    view->append_column("Notes", columns.notes);
+    view->set_headers_visible(true);
+    if (auto *name_column = view->get_column(0)) {
+        name_column->set_min_width(200);
+    }
+    if (auto *notes_column = view->get_column(1)) {
+        notes_column->set_expand(true);
+    }
+    view->get_selection()->set_mode(Gtk::SELECTION_BROWSE);
+    if (auto first = store->children().begin()) {
+        view->get_selection()->select(first);
+    }
+    view->signal_row_activated().connect(
+        [&dialog](const Gtk::TreeModel::Path &, Gtk::TreeViewColumn *) { dialog.response(Gtk::RESPONSE_OK); });
+
+    auto *scroller = Gtk::manage(new Gtk::ScrolledWindow());
+    scroller->set_policy(Gtk::POLICY_NEVER, Gtk::POLICY_AUTOMATIC);
+    scroller->set_shadow_type(Gtk::SHADOW_IN);
+    scroller->set_min_content_height(280);
+    scroller->add(*view);
+
+    auto *content = dialog.get_content_area();
+    content->set_border_width(8);
+    content->set_spacing(6);
+    content->pack_start(*intro, Gtk::PACK_SHRINK);
+    content->pack_start(*scroller, Gtk::PACK_EXPAND_WIDGET);
+    dialog.show_all_children();
+
+    const char *shot = std::getenv("LUNDUKE_CITY_SHOT_SCENARIO");
+    if (shot != nullptr && shot[0] != '\0') {
+        Glib::signal_timeout().connect_once(
+            [&dialog, this, shot] {
+                save_widget_png(dialog, shot);
+                dialog.response(Gtk::RESPONSE_CANCEL);
+            },
+            400);
+    }
+
+    if (dialog.run() != Gtk::RESPONSE_OK) {
+        return;
+    }
+    int id = -1;
+    if (auto selected = view->get_selection()->get_selected()) {
+        id = (*selected)[columns.id];
+    }
+    if (id < 0 || !session_->load_scenario(id)) {
+        Gtk::MessageDialog error(*this, "Could not start that scenario.", false, Gtk::MESSAGE_ERROR,
+                                 Gtk::BUTTONS_OK, true);
+        error.run();
+        return;
+    }
+    session_->set_speed(speed_);
+    sync_option_checks();
+    show_tool_hint();
+    refresh();
+    center_on_fraction(0.5, 0.5);
+}
+
 void AppWindow::on_budget()
 {
     budget_window_.present_book();
@@ -473,7 +618,7 @@ void AppWindow::on_evaluation()
 
 void AppWindow::on_about()
 {
-    Gtk::MessageDialog dialog(*this, "Lunduke City 0.2", false, Gtk::MESSAGE_INFO, Gtk::BUTTONS_OK,
+    Gtk::MessageDialog dialog(*this, "Lunduke City 0.3", false, Gtk::MESSAGE_INFO, Gtk::BUTTONS_OK,
                               true);
     dialog.set_secondary_text(
         "A city-building game. The simulation and the 16-pixel tiles, sprites, "
@@ -527,6 +672,7 @@ void AppWindow::save_widget_png(Gtk::Widget &widget, const char *path)
         return;
     }
     try {
+        window->process_updates(true);
         auto pix = Gdk::Pixbuf::create(window, 0, 0, w, h);
         pix->save(path, "png");
     } catch (const Glib::Error &) {
@@ -534,8 +680,49 @@ void AppWindow::save_widget_png(Gtk::Widget &widget, const char *path)
     }
 }
 
+void AppWindow::probe_zoom_if_requested()
+{
+    const char *path = std::getenv("LUNDUKE_CITY_ZOOM_PROBE");
+    if (path == nullptr || path[0] == '\0') {
+        return;
+    }
+    auto check_accel = [this](unsigned keyval) {
+        map_.set_tile_size(10);
+        gtk_accel_groups_activate(G_OBJECT(gobj()), keyval, GDK_CONTROL_MASK);
+        return map_.tile_size();
+    };
+    auto check_key = [this](unsigned keyval, unsigned state) {
+        map_.set_tile_size(10);
+        GdkEventKey event{};
+        event.type = GDK_KEY_PRESS;
+        event.window = get_window() ? get_window()->gobj() : nullptr;
+        event.keyval = keyval;
+        event.state = state;
+        event.send_event = 1;
+        on_key_press_event(&event);
+        return map_.tile_size();
+    };
+    std::ofstream out(path);
+    out << "accel_equal " << check_accel(GDK_KEY_equal) << "\n";
+    out << "accel_plus " << check_accel(GDK_KEY_plus) << "\n";
+    out << "accel_kp_add " << check_accel(GDK_KEY_KP_Add) << "\n";
+    out << "accel_minus " << check_accel(GDK_KEY_minus) << "\n";
+    out << "key_equal " << check_key(GDK_KEY_equal, GDK_CONTROL_MASK) << "\n";
+    out << "key_plus " << check_key(GDK_KEY_plus, GDK_CONTROL_MASK) << "\n";
+    out << "key_plus_shift " << check_key(GDK_KEY_plus, GDK_CONTROL_MASK | GDK_SHIFT_MASK) << "\n";
+    out << "key_kp_add " << check_key(GDK_KEY_KP_Add, GDK_CONTROL_MASK) << "\n";
+    out << "key_minus " << check_key(GDK_KEY_minus, GDK_CONTROL_MASK) << "\n";
+    out << "key_kp_sub " << check_key(GDK_KEY_KP_Subtract, GDK_CONTROL_MASK) << "\n";
+    out << "key_equal_no_ctrl " << check_key(GDK_KEY_equal, 0) << "\n";
+    map_.set_tile_size(16);
+}
+
 void AppWindow::grab_followup_shots()
 {
+    const char *scenario = std::getenv("LUNDUKE_CITY_SHOT_SCENARIO");
+    if (scenario != nullptr && scenario[0] != '\0') {
+        on_play_scenario();
+    }
     const char *budget = std::getenv("LUNDUKE_CITY_SHOT_BUDGET");
     const char *overlay = std::getenv("LUNDUKE_CITY_SHOT_OVERLAY");
     if (budget != nullptr && budget[0] != '\0') {
@@ -564,26 +751,52 @@ void AppWindow::grab_followup_shots()
 
 void AppWindow::grab_screenshot_if_requested()
 {
+    probe_zoom_if_requested();
     const char *path = std::getenv("LUNDUKE_CITY_SCREENSHOT");
     if (path == nullptr || path[0] == '\0') {
+        if (std::getenv("LUNDUKE_CITY_ZOOM_PROBE") != nullptr) {
+            hide();
+        }
         return;
     }
     prepare_demo_if_requested();
     Glib::signal_timeout().connect_once(
         [this, path] {
+            int hover_x = CitySession::kWorldW / 2;
+            int hover_y = CitySession::kWorldH / 2;
             const auto sprites = session_->sprites();
             for (const auto &dot : sprites) {
                 if (dot.type == SPRITE_AIRPLANE || dot.type == SPRITE_MONSTER ||
                     dot.type == SPRITE_HELICOPTER || dot.type == SPRITE_SHIP ||
                     dot.type == SPRITE_TORNADO || dot.type == SPRITE_TRAIN) {
+                    hover_x = dot.tile_x;
+                    hover_y = dot.tile_y;
                     center_on_fraction((dot.tile_x + 2) / static_cast<double>(CitySession::kWorldW),
                                        (dot.tile_y + 2) / static_cast<double>(CitySession::kWorldH));
                     break;
                 }
             }
+            const char *preview = std::getenv("LUNDUKE_CITY_PREVIEW");
+            if (preview != nullptr && preview[0] != '\0') {
+                int index = kDefaultToolIndex;
+                for (int i = 0; i < kToolCount; ++i) {
+                    if (kTools[i].engine_id == TOOL_RESIDENTIAL) {
+                        index = i;
+                    }
+                }
+                tools_.set_selected(index);
+                map_.set_hover_tile(hover_x, hover_y);
+            }
             refresh();
-            save_widget_png(*this, path);
-            grab_followup_shots();
+            Glib::signal_timeout().connect_once(
+                [this, path] {
+                    if (auto window = get_window()) {
+                        window->process_updates(true);
+                    }
+                    save_widget_png(*this, path);
+                    grab_followup_shots();
+                },
+                200);
         },
         400);
 }

@@ -1,9 +1,81 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
-  <rect width="64" height="64" fill="#0000aa"/>
-  <rect x="4" y="40" width="56" height="18" fill="#c27830"/>
-  <rect x="8" y="28" width="12" height="16" fill="#f2f2ee"/>
-  <rect x="8" y="24" width="12" height="6" fill="#c0392b"/>
-  <rect x="24" y="18" width="14" height="26" fill="#3a5fd0"/>
-  <rect x="42" y="30" width="14" height="14" fill="#d6c21e"/>
-  <rect x="48" y="16" width="4" height="14" fill="#333"/>
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+
+  <defs>
+    <filter id="softShadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="8" result="b"/>
+      <feOffset dx="8" dy="12" result="o"/>
+      <feComponentTransfer in="o" result="a">
+        <feFuncA type="linear" slope="0.40"/>
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode in="a"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <linearGradient id="bpFace" x1="0.15" y1="0.05" x2="0.85" y2="0.95">
+      <stop offset="0%" stop-color="#78b4e0"/>
+      <stop offset="45%" stop-color="#3a82b8"/>
+      <stop offset="100%" stop-color="#1e5088"/>
+    </linearGradient>
+    <linearGradient id="bpEdge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#3a78b0"/>
+      <stop offset="100%" stop-color="#123868"/>
+    </linearGradient>
+    <linearGradient id="bpGloss" x1="0" y1="0" x2="0.6" y2="0.7">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.35"/>
+      <stop offset="55%" stop-color="#ffffff" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="pencilY" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffe070"/>
+      <stop offset="40%" stop-color="#e0a820"/>
+      <stop offset="100%" stop-color="#986810"/>
+    </linearGradient>
+    <linearGradient id="pencilHL" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fff8d0"/>
+      <stop offset="100%" stop-color="#e0a820" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="ferrule" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f0f4f8"/>
+      <stop offset="40%" stop-color="#a8b0bc"/>
+      <stop offset="100%" stop-color="#606870"/>
+    </linearGradient>
+    <linearGradient id="eraser" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffb0c0"/>
+      <stop offset="100%" stop-color="#d06078"/>
+    </linearGradient>
+    <linearGradient id="curlUnd" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#c8e4f4"/>
+      <stop offset="100%" stop-color="#78b0d8"/>
+    </linearGradient>
+  </defs>
+
+
+  <g filter="url(#softShadow)" transform="rotate(-10 128 128)">
+    <!-- thickness edge -->
+    <polygon points="52,48 208,42 220,214 64,222" fill="url(#bpEdge)"/>
+    <!-- face -->
+    <polygon points="48,42 200,36 208,204 56,212" fill="url(#bpFace)"/>
+    <!-- gloss -->
+    <polygon points="48,42 170,38 110,120 48,130" fill="url(#bpGloss)"/>
+    <!-- top rim highlight -->
+    <polyline points="48,42 200,36" fill="none" stroke="#c8e8fc" stroke-width="2.2" stroke-opacity="0.7"/>
+    <polyline points="48,42 56,212" fill="none" stroke="#a0d0f0" stroke-width="1.6" stroke-opacity="0.45"/>
+
+    <g fill="none" stroke="#e8f6ff" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M78,70 V190 M105,68 V192 M138,66 V194 M168,64 V192" stroke-width="1.6" stroke-opacity="0.75"/>
+      <path d="M60,78 H190 M58,105 H192 M56,135 H194 M58,162 H192 M60,188 H188" stroke-width="1.5" stroke-opacity="0.7"/>
+      <path d="M60,132 H192" stroke-width="3.2" stroke="#f4fbff"/>
+      <path d="M128,55 V200" stroke-width="2.6"/>
+      <ellipse cx="168" cy="92" rx="18" ry="13" stroke-width="1.8"/>
+      <path d="M158,84 l6,16 M164,82 l6,16 M170,82 l6,16" stroke-width="1.2" stroke-opacity="0.7"/>
+      <rect x="80" y="78" width="22" height="22" stroke-width="1.5"/>
+      <rect x="142" y="142" width="24" height="22" stroke-width="1.5"/>
+      <rect x="80" y="142" width="22" height="22" stroke-width="1.5"/>
+    </g>
+
+
+  </g>
+
 </svg>

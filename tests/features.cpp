@@ -7,10 +7,13 @@
 
 #include "city_session.hpp"
 #include "sound_player.hpp"
+#include "tools.hpp"
+#include "zoom_keys.hpp"
 
 #include "micropolis.h"
 
 #include <cstdio>
+#include <string>
 
 namespace {
 
@@ -119,5 +122,70 @@ int main()
     player.play("not-a-real-sound");
     player.set_muted(false);
     player.play("Beep");
+
+    const ToolFootprint res_foot = tool_footprint(TOOL_RESIDENTIAL);
+    const ToolFootprint commercial = tool_footprint(TOOL_COMMERCIAL);
+    const ToolFootprint industrial = tool_footprint(TOOL_INDUSTRIAL);
+    const ToolFootprint stadium = tool_footprint(TOOL_STADIUM);
+    const ToolFootprint airport = tool_footprint(TOOL_AIRPORT);
+    const ToolFootprint road = tool_footprint(TOOL_ROAD);
+    const ToolFootprint rail = tool_footprint(TOOL_RAILROAD);
+    const ToolFootprint wire = tool_footprint(TOOL_WIRE);
+    const ToolFootprint park = tool_footprint(TOOL_PARK);
+    const ToolFootprint dozer = tool_footprint(TOOL_BULLDOZER);
+    const ToolFootprint query = tool_footprint(TOOL_QUERY);
+    if (!res_foot.placeable || res_foot.width != 3 || res_foot.height != 3 ||
+        res_foot.cursor_to_left != 1 || res_foot.cursor_to_top != 1 ||
+        commercial.width != 3 || industrial.width != 3) {
+        return fail(11, "zone footprint is not the engine 3x3 center");
+    }
+    if (stadium.width != 4 || stadium.height != 4 || airport.width != 6 || airport.height != 6 ||
+        airport.cursor_to_left != 1) {
+        return fail(12, "building footprint does not match gToolSize");
+    }
+    if (!road.placeable || road.width != 1 || rail.width != 1 || wire.width != 1 || park.width != 1 ||
+        dozer.width != 1 || road.cursor_to_left != 0) {
+        return fail(13, "line tools should be a single tile on the cursor");
+    }
+    if (query.placeable) {
+        return fail(14, "query should not draw a placement preview");
+    }
+
+    // Ctrl and the +/= key (GDK_KEY_equal) zooms in with no Shift bit.
+    constexpr unsigned kControl = 4;
+    constexpr unsigned kShift = 1;
+    if (zoom_action(0x03d, kControl) != ZoomAction::In ||
+        zoom_action(0x03d, kControl | kShift) != ZoomAction::In ||
+        zoom_action(0x02b, kControl) != ZoomAction::In ||
+        zoom_action(0xffab, kControl) != ZoomAction::In) {
+        return fail(15, "ctrl-+ should zoom in without requiring shift");
+    }
+    if (zoom_action(0x02d, kControl) != ZoomAction::Out || zoom_action(0xffad, kControl) != ZoomAction::Out) {
+        return fail(16, "ctrl-minus should still zoom out");
+    }
+    if (zoom_action(0x03d, 0) != ZoomAction::None || zoom_action(0x03d, kControl | 8) != ZoomAction::None) {
+        return fail(17, "zoom should ignore the bare equal key and ctrl-alt");
+    }
+
+    if (CitySession::kScenarioCount != 8) {
+        return fail(18, "expected the eight engine scenarios");
+    }
+    for (int i = 0; i < CitySession::kScenarioCount; ++i) {
+        const CitySession::ScenarioDef &def = CitySession::scenario_def(i);
+        if (def.name == nullptr || def.name[0] == '\0' || def.year < 1900) {
+            return fail(19, "scenario catalog entry is incomplete");
+        }
+        if (!session.load_scenario(def.id) || session.city_name() != def.name) {
+            return fail(20, "scenario did not load through the engine");
+        }
+        if (!session.save_path().empty()) {
+            return fail(21, "a scenario should not keep a save path");
+        }
+    }
+    if (!session.load_scenario(CitySession::scenario_def(0).id) ||
+        session.city_name() != "Dullsville" ||
+        session.funds_text().find("$5,000") == std::string::npos) {
+        return fail(22, "Dullsville should start with $5,000");
+    }
     return 0;
 }

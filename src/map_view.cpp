@@ -7,6 +7,7 @@
 #include "city_session.hpp"
 #include "sprite_art.hpp"
 #include "tile_atlas.hpp"
+#include "tools.hpp"
 
 #include "micropolis.h"
 
@@ -19,7 +20,7 @@
 MapView::MapView()
 {
     add_events(Gdk::BUTTON_PRESS_MASK | Gdk::BUTTON_RELEASE_MASK | Gdk::POINTER_MOTION_MASK |
-               Gdk::BUTTON1_MOTION_MASK);
+               Gdk::BUTTON1_MOTION_MASK | Gdk::LEAVE_NOTIFY_MASK);
     set_tile_size(tile_size_);
 }
 
@@ -40,6 +41,31 @@ void MapView::set_session(CitySession *session)
 void MapView::set_tool(int engine_tool)
 {
     engine_tool_ = engine_tool;
+    queue_draw();
+}
+
+void MapView::set_hover_tile(int tx, int ty)
+{
+    if (tx < 0 || ty < 0 || tx >= CitySession::kWorldW || ty >= CitySession::kWorldH) {
+        clear_hover();
+        return;
+    }
+    if (hover_valid_ && hover_x_ == tx && hover_y_ == ty) {
+        return;
+    }
+    hover_valid_ = true;
+    hover_x_ = tx;
+    hover_y_ = ty;
+    queue_draw();
+}
+
+void MapView::clear_hover()
+{
+    if (!hover_valid_) {
+        return;
+    }
+    hover_valid_ = false;
+    queue_draw();
 }
 
 void MapView::set_tile_size(int pixels)
@@ -96,13 +122,18 @@ bool MapView::on_button_release_event(GdkEventButton *event)
 
 bool MapView::on_motion_notify_event(GdkEventMotion *event)
 {
-    if (!dragging_ || (event->state & GDK_BUTTON1_MASK) == 0) {
-        return false;
-    }
     int tx = 0;
     int ty = 0;
     if (!tile_at(event->x, event->y, tx, ty)) {
-        return false;
+        clear_hover();
+    } else {
+        set_hover_tile(tx, ty);
+    }
+    if (!dragging_ || (event->state & GDK_BUTTON1_MASK) == 0) {
+        return true;
+    }
+    if (!hover_valid_) {
+        return true;
     }
     if (tx == last_x_ && ty == last_y_) {
         return true;
@@ -111,6 +142,42 @@ bool MapView::on_motion_notify_event(GdkEventMotion *event)
     last_x_ = tx;
     last_y_ = ty;
     return true;
+}
+
+bool MapView::on_leave_notify_event(GdkEventCrossing *)
+{
+    clear_hover();
+    return true;
+}
+
+void MapView::draw_footprint(const Cairo::RefPtr<Cairo::Context> &cr) const
+{
+    if (!hover_valid_) {
+        return;
+    }
+    const ToolFootprint foot = tool_footprint(engine_tool_);
+    if (!foot.placeable || foot.width < 1 || foot.height < 1) {
+        return;
+    }
+    const double x = static_cast<double>(hover_x_ - foot.cursor_to_left) * tile_size_;
+    const double y = static_cast<double>(hover_y_ - foot.cursor_to_top) * tile_size_;
+    const double w = static_cast<double>(foot.width) * tile_size_;
+    const double h = static_cast<double>(foot.height) * tile_size_;
+    if (w < 2.0 || h < 2.0) {
+        return;
+    }
+    // Stroke only. A fill would hide the tiles under the cursor.
+    cr->save();
+    cr->set_antialias(Cairo::ANTIALIAS_NONE);
+    cr->rectangle(x + 1.0, y + 1.0, w - 2.0, h - 2.0);
+    cr->set_source_rgba(0.0, 0.0, 0.0, 0.90);
+    cr->set_line_width(3.0);
+    cr->stroke();
+    cr->rectangle(x + 1.0, y + 1.0, w - 2.0, h - 2.0);
+    cr->set_source_rgba(1.0, 1.0, 1.0, 0.95);
+    cr->set_line_width(1.5);
+    cr->stroke();
+    cr->restore();
 }
 
 bool MapView::on_draw(const Cairo::RefPtr<Cairo::Context> &cr)
@@ -184,5 +251,6 @@ bool MapView::on_draw(const Cairo::RefPtr<Cairo::Context> &cr)
         }
     }
     cr->restore();
+    draw_footprint(cr);
     return true;
 }

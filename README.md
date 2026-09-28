@@ -1,6 +1,6 @@
 # Lunduke City
 
-Lunduke City is a windowed city-building game for LCOS. Version 0.2 is a
+Lunduke City is a windowed city-building game for LCOS. Version 0.3 is a
 gtkmm 3 shell in the classic menu / funds / tool-palette / map layout,
 wired to the Micropolis simulation engine. The map uses the Micropolis
 16-pixel tiles, and trains, ships, aircraft, tornadoes, and the monster
@@ -27,12 +27,26 @@ ninja -C build
 ./build/src/lunduke-city
 ```
 
-The installed binary name is `lunduke-city`. A desktop entry and icon are
-installed with `ninja -C build install`.
+The installed binary name is `lunduke-city`. A desktop entry and the
+roadmap-blueprint icon are installed with `ninja -C build install`
+(`Icon=lunduke-city`: scalable SVG from `data/lunduke-city.svg`, plus
+hicolor PNGs at 16, 32, 48, 64, 128, and 256).
 
 `meson test -C build` runs headless checks: the engine smoke test, plus
 budget funding, overlay samples, a sprite report, and sound startup
 (playback is skipped cleanly when no audio device is available).
+
+## What 0.3 adds
+
+- Options → Zoom in is Ctrl and the +/= key, with no Shift. Keypad plus
+  and Ctrl-minus still zoom.
+- The map outlines the footprint of the selected build tool under the
+  pointer (zones, roads, rail, wire, park, bulldozer, and the other
+  placeable tools). Query does not.
+- System → Play Scenario… lists the eight engine scenarios (Dullsville
+  through Rio de Janeiro) and starts the one you pick.
+- The desktop and window icon are the roadmap blueprint (`lunduke-city`).
+  The window sets that name with `set_default_icon_name` and `set_icon_name`.
 
 ## What 0.2 does
 
@@ -77,5 +91,5 @@ from the same upstream commit. They are unmodified.
 
 ## Next steps
 
-- Ship a few sample cities and the scenario set, with the same license
-  notices as the engine.
+- Ship a few sample cities, with the same license notices as the engine.
+  The scenario set (`res/snro.*`) is already included.

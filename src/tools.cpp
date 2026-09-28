@@ -38,6 +38,43 @@ const ToolDef *tool_by_index(int index)
     return &kTools[index];
 }
 
+ToolFootprint tool_footprint(int engine_id)
+{
+    // Same sizes as static gToolSize[] in the engine (indexed by EditingTool):
+    //   res/com/ind/fire/police = 3, stadium/seaport/coal/nuclear = 4,
+    //   airport = 6, query and the line tools = 1.
+    // Multi-tile buildings are anchored on the cursor, then buildBuilding()
+    // moves to the top-left with mapH--; mapV--.
+    switch (engine_id) {
+    case TOOL_RESIDENTIAL:
+    case TOOL_COMMERCIAL:
+    case TOOL_INDUSTRIAL:
+    case TOOL_FIRESTATION:
+    case TOOL_POLICESTATION:
+        return {true, 3, 3, 1, 1};
+    case TOOL_STADIUM:
+    case TOOL_SEAPORT:
+    case TOOL_COALPOWER:
+    case TOOL_NUCLEARPOWER:
+        return {true, 4, 4, 1, 1};
+    case TOOL_AIRPORT:
+        return {true, 6, 6, 1, 1};
+    case TOOL_WIRE:
+    case TOOL_BULLDOZER:
+    case TOOL_RAILROAD:
+    case TOOL_ROAD:
+    case TOOL_PARK:
+    case TOOL_NETWORK:
+    case TOOL_WATER:
+    case TOOL_LAND:
+    case TOOL_FOREST:
+        return {true, 1, 1, 0, 0};
+    case TOOL_QUERY:
+    default:
+        return {false, 1, 1, 0, 0};
+    }
+}
+
 namespace {
 
 struct ToolIdCheck {

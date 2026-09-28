@@ -4,6 +4,7 @@
 
 #include "city_session.hpp"
 
+#include "assets.hpp"
 #include "messages.hpp"
 
 #include "micropolis.h"
@@ -11,6 +12,7 @@
 #include <algorithm>
 #include <cstdarg>
 #include <ctime>
+#include <fstream>
 #include <memory>
 #include <sstream>
 
@@ -59,7 +61,36 @@ const char *city_class_name(CityClass city_class)
     }
 }
 
+struct ScenarioEntry {
+    CitySession::ScenarioDef def;
+    const char *filename;
+};
+
+// Names, years, funds, and filenames are the engine's loadScenario() table.
+const ScenarioEntry kScenarios[] = {
+    {{SC_DULLSVILLE, "Dullsville", 1900, "A quiet city that needs growth."}, "snro.111"},
+    {{SC_SAN_FRANCISCO, "San Francisco", 1906, "An earthquake strikes the city."}, "snro.222"},
+    {{SC_HAMBURG, "Hamburg", 1944, "Fire spreads through the city."}, "snro.333"},
+    {{SC_BERN, "Bern", 1965, "Traffic is choking the streets."}, "snro.444"},
+    {{SC_TOKYO, "Tokyo", 1957, "A monster is approaching."}, "snro.555"},
+    {{SC_DETROIT, "Detroit", 1972, "Crime is out of control."}, "snro.666"},
+    {{SC_BOSTON, "Boston", 2010, "A nuclear meltdown is coming."}, "snro.777"},
+    {{SC_RIO, "Rio de Janeiro", 2047, "Flooding threatens the city."}, "snro.888"},
+};
+
+static_assert(sizeof(kScenarios) / sizeof(kScenarios[0]) == CitySession::kScenarioCount,
+              "scenario catalog size");
+static_assert(SC_DULLSVILLE == 1 && SC_RIO == 8, "scenario ids");
+
 } // namespace
+
+const CitySession::ScenarioDef &CitySession::scenario_def(int index)
+{
+    if (index < 0 || index >= kScenarioCount) {
+        return kScenarios[0].def;
+    }
+    return kScenarios[index].def;
+}
 
 // Held out of the header so the UI translation units do not include the engine.
 struct CitySession::Engine {
@@ -220,6 +251,46 @@ bool CitySession::load_city(const std::string &path)
     if (message_.empty()) {
         message_ = "Loaded a saved city.";
     }
+    notify();
+    return true;
+}
+
+bool CitySession::load_scenario(int id)
+{
+    const ScenarioEntry *entry = nullptr;
+    for (const auto &candidate : kScenarios) {
+        if (candidate.def.id == id) {
+            entry = &candidate;
+            break;
+        }
+    }
+    if (entry == nullptr) {
+        message_ = "Could not start that scenario.";
+        notify();
+        return false;
+    }
+
+    const std::string root = asset_root();
+    const std::string dir = root.empty() ? std::string() : root + "/res";
+    const std::string file = dir.empty() ? std::string() : dir + "/" + entry->filename;
+    std::ifstream in(file, std::ios::binary);
+    in.seekg(0, std::ios::end);
+    const auto bytes = in.good() ? static_cast<long>(in.tellg()) : -1L;
+    if (bytes != 27120) {
+        message_ = "Could not start that scenario.";
+        notify();
+        return false;
+    }
+
+    Micropolis &sim = engine_->sim;
+    // loadScenario() reads snro.* from resourceDir via loadFileDir().
+    sim.resourceDir = dir;
+    sim.loadScenario(static_cast<Scenario>(id));
+    sim.setSpeed(static_cast<short>(speed_));
+    sim.setEnableSound(sound_enabled_);
+    save_path_.clear();
+    ready_ = true;
+    message_ = std::string("Playing ") + entry->def.name + ".";
     notify();
     return true;
 }

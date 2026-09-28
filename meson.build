@@ -1,7 +1,7 @@
 project(
   'lunduke-city',
   'cpp',
-  version: '0.2.0',
+  version: '0.3.0',
   default_options: ['cpp_std=c++17', 'warning_level=2'],
   meson_version: '>= 0.60',
 )
@@ -18,10 +18,17 @@ install_data(
   'data/lunduke-city.desktop',
   install_dir: get_option('datadir') / 'applications',
 )
+# Icon=lunduke-city. Scalable SVG plus hicolor PNGs.
 install_data(
   'data/lunduke-city.svg',
   install_dir: get_option('datadir') / 'icons' / 'hicolor' / 'scalable' / 'apps',
 )
+foreach size : ['16', '32', '48', '64', '128', '256']
+  install_data(
+    'data/icons/hicolor/' + size + 'x' + size + '/apps/lunduke-city.png',
+    install_dir: get_option('datadir') / 'icons' / 'hicolor' / (size + 'x' + size) / 'apps',
+  )
+endforeach
 install_subdir(
   'third_party/micropolis-assets',
   install_dir: get_option('datadir') / 'lunduke-city',

@@ -23,6 +23,7 @@ Unmodified, from `MicropolisCore/src/` at that commit:
 | `images/micropolisEngine/obj*.png` | `images/micropolisEngine/obj*.png` |
 | `res/hexa.*` | `res/hexa.*` |
 | `res/sounds/*.wav` | `res/sounds/*.wav` |
+| `res/snro.111` … `res/snro.888` | `res/snro.111` … `res/snro.888` |
 
 Nothing in this directory was edited. The additional terms require modified
 versions to be marked; these bytes are the upstream files.
