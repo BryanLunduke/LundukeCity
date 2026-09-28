@@ -14,6 +14,7 @@
 
 #include <cstdio>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -186,6 +187,33 @@ int main()
         session.city_name() != "Dullsville" ||
         session.funds_text().find("$5,000") == std::string::npos) {
         return fail(22, "Dullsville should start with $5,000");
+    }
+
+    // Animated tiles (traffic, fountains, smokestacks) cycle on every tick,
+    // even while paused.
+    if (!session.load_scenario(SC_DETROIT)) {
+        return fail(23, "Detroit did not load");
+    }
+    session.set_speed(0);
+    std::vector<int> before;
+    for (int y = 0; y < CitySession::kWorldH; ++y) {
+        for (int x = 0; x < CitySession::kWorldW; ++x) {
+            before.push_back(session.map_value(x, y));
+        }
+    }
+    bool animated = false;
+    for (int t = 0; t < 8 && !animated; ++t) {
+        session.tick();
+        for (int y = 0, i = 0; y < CitySession::kWorldH; ++y) {
+            for (int x = 0; x < CitySession::kWorldW; ++x, ++i) {
+                if ((before[i] & ANIMBIT) != 0 && session.map_value(x, y) != before[i]) {
+                    animated = true;
+                }
+            }
+        }
+    }
+    if (!animated) {
+        return fail(24, "animated tiles should change while paused");
     }
     return 0;
 }

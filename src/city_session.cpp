@@ -315,6 +315,10 @@ void CitySession::tick()
         return;
     }
     engine_->sim.simTick();
+    // simTick() does not cycle animated tiles (fire, traffic, smokestacks,
+    // radar); upstream front ends call animateTiles() after every tick,
+    // paused or not.
+    engine_->sim.animateTiles();
 }
 
 void CitySession::use_tool(int engine_tool, int tile_x, int tile_y)
