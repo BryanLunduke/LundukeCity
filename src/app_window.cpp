@@ -4,7 +4,9 @@
 
 #include "app_window.hpp"
 
+#include "about_dialog.hpp"
 #include "city_session.hpp"
+#include "new_city_dialog.hpp"
 #include "tools.hpp"
 #include "zoom_keys.hpp"
 
@@ -54,6 +56,8 @@ AppWindow::AppWindow()
         overlays_[i]->set_session(session_.get());
     }
     budget_window_.set_session(session_.get());
+    graphs_window_.set_session(session_.get());
+    evaluation_window_.set_session(session_.get());
     build_ui();
     build_menus();
     bind_session();
@@ -161,6 +165,7 @@ void AppWindow::build_menus()
     add_item(system_menu, "_Save City", GDK_KEY_s, sigc::mem_fun(*this, &AppWindow::on_save_city));
     add_item(system_menu, "Save City _As...", 0, sigc::mem_fun(*this, &AppWindow::on_save_city_as));
     add_item(system_menu, "Play _Scenario…", 0, sigc::mem_fun(*this, &AppWindow::on_play_scenario));
+    add_item(system_menu, "_Rename City…", 0, sigc::mem_fun(*this, &AppWindow::on_rename_city));
     system_menu->append(*Gtk::manage(new Gtk::SeparatorMenuItem()));
     add_item(system_menu, "_Quit", GDK_KEY_q, [this] { hide(); });
     menu_bar_.append(*system);
@@ -220,6 +225,7 @@ void AppWindow::build_menus()
     auto *windows = Gtk::manage(new Gtk::MenuItem("_Windows", true));
     windows->set_submenu(*windows_menu);
     add_item(windows_menu, "_Budget", 0, sigc::mem_fun(*this, &AppWindow::on_budget));
+    add_item(windows_menu, "_Graphs", 0, sigc::mem_fun(*this, &AppWindow::on_graphs));
     add_item(windows_menu, "_Evaluation", 0, sigc::mem_fun(*this, &AppWindow::on_evaluation));
     windows_menu->append(*Gtk::manage(new Gtk::SeparatorMenuItem()));
     add_item(windows_menu, "_Power", 0, [this] { on_overlay(CitySession::MapLayer::Power); });
@@ -311,6 +317,7 @@ void AppWindow::refresh()
     funds_label_.set_text(session_->funds_text());
     name_label_.set_text(session_->city_name());
     date_label_.set_text(session_->date_text());
+    set_title("Lunduke City - " + session_->city_name());
 
     const auto now = std::chrono::steady_clock::now();
     const std::string engine_message = session_->message();
@@ -327,6 +334,12 @@ void AppWindow::refresh()
     demand_.queue_draw();
     if (budget_window_.get_visible()) {
         budget_window_.sync();
+    }
+    if (graphs_window_.get_visible()) {
+        graphs_window_.sync();
+    }
+    if (evaluation_window_.get_visible()) {
+        evaluation_window_.sync();
     }
     for (auto &overlay : overlays_) {
         if (overlay && overlay->get_visible()) {
@@ -408,30 +421,55 @@ bool AppWindow::on_key_press_event(GdkEventKey *event)
 
 void AppWindow::on_new_city()
 {
-    Gtk::Dialog dialog("New City", *this, true);
-    dialog.add_button("_Cancel", Gtk::RESPONSE_CANCEL);
-    dialog.add_button("_Generate", Gtk::RESPONSE_OK);
-    dialog.set_default_response(Gtk::RESPONSE_OK);
-    auto *content = dialog.get_content_area();
-    auto *label = Gtk::manage(new Gtk::Label("Name the new city:"));
-    label->set_halign(Gtk::ALIGN_START);
-    auto *entry = Gtk::manage(new Gtk::Entry());
-    entry->set_text("New City");
-    entry->set_activates_default(true);
-    content->pack_start(*label, Gtk::PACK_SHRINK);
-    content->pack_start(*entry, Gtk::PACK_SHRINK);
-    content->set_border_width(8);
-    content->set_spacing(6);
-    dialog.show_all_children();
-    if (dialog.run() != Gtk::RESPONSE_OK) {
+    CitySession::NewCitySpec spec;
+    const char *shot = std::getenv("LUNDUKE_CITY_SHOT_NEWCITY");
+    const std::string shot_path = shot != nullptr ? shot : "";
+    if (!run_new_city_wizard(*this, spec, shot_path)) {
         return;
     }
-    session_->new_city(entry->get_text());
+    session_->new_city(spec);
     session_->set_speed(speed_);
     sync_option_checks();
     show_tool_hint();
     refresh();
     center_on_fraction(0.5, 0.5);
+}
+
+void AppWindow::on_rename_city()
+{
+    Gtk::Dialog dialog("Rename City", *this, true);
+    dialog.add_button("_Cancel", Gtk::RESPONSE_CANCEL);
+    dialog.add_button("_Rename", Gtk::RESPONSE_OK);
+    dialog.set_default_response(Gtk::RESPONSE_OK);
+    auto *content = dialog.get_content_area();
+    auto *label = Gtk::manage(new Gtk::Label("New name for this city:"));
+    label->set_halign(Gtk::ALIGN_START);
+    auto *entry = Gtk::manage(new Gtk::Entry());
+    entry->set_text(session_->city_name());
+    entry->set_activates_default(true);
+    content->set_border_width(12);
+    content->set_spacing(6);
+    content->pack_start(*label, Gtk::PACK_SHRINK);
+    content->pack_start(*entry, Gtk::PACK_SHRINK);
+    dialog.set_default_size(360, 120);
+    dialog.show_all_children();
+
+    const char *shot = std::getenv("LUNDUKE_CITY_SHOT_RENAME");
+    if (shot != nullptr && shot[0] != '\0') {
+        entry->set_text("Harbor Town");
+        Glib::signal_timeout().connect_once(
+            [&dialog, this, shot] {
+                save_widget_png(dialog, shot);
+                dialog.response(Gtk::RESPONSE_CANCEL);
+            },
+            400);
+    }
+
+    if (dialog.run() != Gtk::RESPONSE_OK) {
+        return;
+    }
+    session_->rename_city(entry->get_text());
+    refresh();
 }
 
 void AppWindow::on_load_city()
@@ -600,6 +638,11 @@ void AppWindow::on_budget()
     budget_window_.present_book();
 }
 
+void AppWindow::on_graphs()
+{
+    graphs_window_.present_graphs();
+}
+
 void AppWindow::on_overlay(CitySession::MapLayer layer)
 {
     const int index = static_cast<int>(layer);
@@ -611,21 +654,21 @@ void AppWindow::on_overlay(CitySession::MapLayer layer)
 
 void AppWindow::on_evaluation()
 {
-    Gtk::MessageDialog dialog(*this, "Evaluation", false, Gtk::MESSAGE_INFO, Gtk::BUTTONS_OK, true);
-    dialog.set_secondary_text(session_->evaluation_text());
-    dialog.run();
+    evaluation_window_.present_report();
 }
 
 void AppWindow::on_about()
 {
-    Gtk::MessageDialog dialog(*this, "Lunduke City 0.7", false, Gtk::MESSAGE_INFO, Gtk::BUTTONS_OK,
-                              true);
-    dialog.set_secondary_text(
-        "A city-building game. The simulation and the 16-pixel tiles, sprites, "
-        "and sounds are from Micropolis, used under GPL-3.0-or-later with the "
-        "additional terms in NOTICE.\n\n"
-        "Lunduke City is an independent project. It is not affiliated with "
-        "or endorsed by Electronic Arts.");
+    AboutDialog dialog(*this);
+    const char *shot = std::getenv("LUNDUKE_CITY_SHOT_ABOUT");
+    if (shot != nullptr && shot[0] != '\0') {
+        Glib::signal_timeout().connect_once(
+            [&dialog, this, shot] {
+                save_widget_png(dialog, shot);
+                dialog.response(Gtk::RESPONSE_CLOSE);
+            },
+            400);
+    }
     dialog.run();
 }
 
@@ -723,16 +766,36 @@ void AppWindow::grab_followup_shots()
     if (scenario != nullptr && scenario[0] != '\0') {
         on_play_scenario();
     }
+    const char *new_city = std::getenv("LUNDUKE_CITY_SHOT_NEWCITY");
+    if (new_city != nullptr && new_city[0] != '\0') {
+        on_new_city();
+    }
+    const char *rename = std::getenv("LUNDUKE_CITY_SHOT_RENAME");
+    if (rename != nullptr && rename[0] != '\0') {
+        on_rename_city();
+    }
+    const char *about = std::getenv("LUNDUKE_CITY_SHOT_ABOUT");
+    if (about != nullptr && about[0] != '\0') {
+        on_about();
+    }
     const char *budget = std::getenv("LUNDUKE_CITY_SHOT_BUDGET");
     const char *overlay = std::getenv("LUNDUKE_CITY_SHOT_OVERLAY");
+    const char *graphs = std::getenv("LUNDUKE_CITY_SHOT_GRAPHS");
+    const char *evaluation = std::getenv("LUNDUKE_CITY_SHOT_EVAL");
     if (budget != nullptr && budget[0] != '\0') {
         on_budget();
     }
     if (overlay != nullptr && overlay[0] != '\0') {
         on_overlay(CitySession::MapLayer::Power);
     }
+    if (graphs != nullptr && graphs[0] != '\0') {
+        on_graphs();
+    }
+    if (evaluation != nullptr && evaluation[0] != '\0') {
+        on_evaluation();
+    }
     Glib::signal_timeout().connect_once(
-        [this, budget, overlay] {
+        [this, budget, overlay, graphs, evaluation] {
             if (budget != nullptr && budget[0] != '\0') {
                 save_widget_png(budget_window_, budget);
                 budget_window_.hide();
@@ -740,6 +803,14 @@ void AppWindow::grab_followup_shots()
             if (overlay != nullptr && overlay[0] != '\0' && overlays_[0]) {
                 save_widget_png(*overlays_[0], overlay);
                 overlays_[0]->hide();
+            }
+            if (graphs != nullptr && graphs[0] != '\0') {
+                save_widget_png(graphs_window_, graphs);
+                graphs_window_.hide();
+            }
+            if (evaluation != nullptr && evaluation[0] != '\0') {
+                save_widget_png(evaluation_window_, evaluation);
+                evaluation_window_.hide();
             }
             if (const char *exit_flag = std::getenv("LUNDUKE_CITY_EXIT");
                 exit_flag != nullptr && exit_flag[0] == '1') {

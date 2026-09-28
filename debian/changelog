@@ -1,3 +1,17 @@
+lunduke-city (0.7-2) unstable; urgency=medium
+
+  * LCOS 0.7-2 on the 0.7 track. New City is a three-step wizard
+    (name, difficulty / terrain / seed, generate) wired to the engine
+    game level and terrain generator. Windows → Graphs charts the
+    engine history. Windows → Evaluation is a full score, opinion, and
+    problems window. System → Rename City updates the engine name and
+    the window title. About is a proper dialog (version 0.7-2, GPL and
+    NOTICE, no Electronic Arts affiliation).
+  * Keeps the 0.3 / 0.7-1 map, sprites, budget, sound, overlays,
+    Ctrl-+ zoom, placement preview, Play Scenario, and icon.
+
+ -- LCOS <lcos@lunduke.com>  Mon, 28 Sep 2026 21:40:00 +0000
+
 lunduke-city (0.7-1) unstable; urgency=medium
 
   * LCOS 0.7 release-track identity bump (0.7-1). Same application as

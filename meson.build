@@ -1,7 +1,7 @@
 project(
   'lunduke-city',
   'cpp',
-  version: '0.7.0',
+  version: '0.7.2',
   default_options: ['cpp_std=c++17', 'warning_level=2'],
   meson_version: '>= 0.60',
 )

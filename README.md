@@ -1,9 +1,9 @@
 # Lunduke City
 
 Lunduke City is a windowed city-building game for LCOS. Version 0.7
-(Debian package 0.7-1) is the LCOS 0.7 release-track identity of the same
-gtkmm 3 shell as 0.3: classic menu / funds / tool-palette / map layout,
-wired to the Micropolis simulation engine. The map uses the Micropolis
+(Debian package 0.7-2, Meson project version 0.7.2) is the LCOS 0.7
+release track: classic menu / funds / tool-palette / map layout, wired
+to the Micropolis simulation engine. The map uses the Micropolis
 16-pixel tiles, and trains, ships, aircraft, tornadoes, and the monster
 are drawn from the engine's sprite frames.
 
@@ -36,6 +36,23 @@ hicolor PNGs at 16, 32, 48, 64, 128, and 256).
 `meson test -C build` runs headless checks: the engine smoke test, plus
 budget funding, overlay samples, a sprite report, and sound startup
 (playback is skipped cleanly when no audio device is available).
+
+## What 0.7-2 adds
+
+- System → New City is a three-step wizard: name, then difficulty,
+  terrain, and seed, then generate. Difficulty is the engine game level
+  (easy $20,000, medium $10,000, hard $5,000). Terrain choices are the
+  generator's island, river, lake, and tree controls. The seed is passed
+  to `generateSomeCity` (0 takes one from the clock).
+- Windows → Graphs charts population (from the residential, commercial,
+  and industrial histories), cash flow, crime, and pollution for the
+  10-year and 120-year engine scales. It keeps updating while the city runs.
+- Windows → Evaluation shows the engine score, mayor opinion, the worst
+  problems, and the city statistics.
+- System → Rename City renames the open city and the window title.
+- Windows → About Lunduke City is a dialog with the 0.7-2 version, a
+  short description, the GPL and NOTICE pointers, and a statement that
+  the project is independent of Electronic Arts.
 
 ## What 0.3 adds
 
