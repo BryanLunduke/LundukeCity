@@ -398,7 +398,11 @@ void CitySession::tick()
     if (!ready_) {
         return;
     }
+    // simTick() steps the simulation and does not cycle animated map
+    // tiles. Upstream Micropolis front ends call animateTiles() after
+    // each simTick() so traffic, fountains, and smokestacks advance.
     engine_->sim.simTick();
+    engine_->sim.animateTiles();
 }
 
 void CitySession::use_tool(int engine_tool, int tile_x, int tile_y)

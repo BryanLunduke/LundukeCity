@@ -1,7 +1,7 @@
 # Lunduke City
 
 Lunduke City is a windowed city-building game for LCOS. Version 0.7
-(Debian package 0.7-2, Meson project version 0.7.2) is the LCOS 0.7
+(Debian package 0.7-3, Meson project version 0.7.3) is the LCOS 0.7
 release track: classic menu / funds / tool-palette / map layout, wired
 to the Micropolis simulation engine. The map uses the Micropolis
 16-pixel tiles, and trains, ships, aircraft, tornadoes, and the monster
@@ -33,9 +33,20 @@ roadmap-blueprint icon are installed with `ninja -C build install`
 (`Icon=lunduke-city`: scalable SVG from `data/lunduke-city.svg`, plus
 hicolor PNGs at 16, 32, 48, 64, 128, and 256).
 
-`meson test -C build` runs headless checks: the engine smoke test, plus
-budget funding, overlay samples, a sprite report, and sound startup
+`meson test -C build` runs headless checks: the engine smoke test, the
+engine fixes (problem votes and sprite cleanup), plus budget funding,
+overlay samples, tile animation, a sprite report, and sound startup
 (playback is skipped cleanly when no audio device is available).
+
+## What 0.7-3 fixes
+
+- Traffic, fountains, and smokestacks animate. Each session tick runs
+  the engine's tile animation after the simulation step.
+- The vendored engine's yearly problem vote stays inside the problem
+  table.
+- Leaving a city frees the engine's sprites as well as its map arrays.
+- The engine sources are a modified version of the upstream program.
+  The changes are listed under Engine below and in [NOTICE](NOTICE).
 
 ## What 0.7-2 adds
 
@@ -99,8 +110,18 @@ budget funding, overlay samples, a sprite report, and sound startup
 Sources live in `third_party/micropolis/MicropolisEngine/`, taken from
 [SimHacker/micropolis](https://github.com/SimHacker/micropolis) commit
 `c98f6b08519887b450d9be198bfca5237aab6d0c`, path
-`MicropolisCore/src/MicropolisEngine/src`. They are unmodified and compiled
-as a static library. Provenance details are in
+`MicropolisCore/src/MicropolisEngine/src`, and then modified. They are
+compiled as a static library. This is not the original engine program.
+The modifications, required to be marked by GPL section 7 and the
+additional terms in [NOTICE](NOTICE), are:
+
+- `voteProblems()` wraps its problem index when the index reaches
+  `PROBNUM`, so a yearly evaluation does not read one entry past
+  `problemTable` or overwrite `problemOrder[0]`.
+- `destroy()` frees sprites on the active list and the free list, as
+  well as the map arrays.
+
+Provenance details are in
 [third_party/micropolis/README.md](third_party/micropolis/README.md).
 
 Tiles, sprites, and sounds are vendored under

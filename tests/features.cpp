@@ -189,8 +189,8 @@ int main()
         return fail(22, "Dullsville should start with $5,000");
     }
 
-    if (std::string(kPackageVersion) != "0.7-2" || std::string(kReleaseTrack) != "0.7") {
-        return fail(23, "package version should be the 0.7-2 identity");
+    if (std::string(kPackageVersion) != "0.7-3" || std::string(kReleaseTrack) != "0.7") {
+        return fail(23, "package version should be the 0.7-3 identity");
     }
 
     auto count_kind = [](CitySession &city, bool woods) {
@@ -309,6 +309,51 @@ int main()
     session.rename_city("   ");
     if (session.city_name() != "Harbor Town") {
         return fail(37, "a blank rename should leave the current name");
+    }
+
+    // A paused tick must still advance an animated tile. simTick() does
+    // not do that; CitySession::tick() has to call animateTiles(), the
+    // same follow-up upstream Micropolis front ends use. Park placement
+    // drops a fountain (the animated tile) on one try in five.
+    CitySession animated;
+    animated.new_city("Fountain", 21);
+    animated.set_speed(0);
+    animated.set_disasters(false);
+    int fountain_x = -1;
+    int fountain_y = -1;
+    int planted = 0;
+    for (int y = 0; y < CitySession::kWorldH && fountain_x < 0 && planted < 80; ++y) {
+        for (int x = 0; x < CitySession::kWorldW && planted < 80; ++x) {
+            if ((animated.map_value(x, y) & LOMASK) != DIRT) {
+                continue;
+            }
+            animated.use_tool(TOOL_PARK, x, y);
+            ++planted;
+            if ((animated.map_value(x, y) & LOMASK) == FOUNTAIN &&
+                (animated.map_value(x, y) & ANIMBIT) != 0) {
+                fountain_x = x;
+                fountain_y = y;
+            }
+        }
+    }
+    if (fountain_x < 0) {
+        return fail(38, "park tool did not place an animated fountain");
+    }
+    const int before = animated.map_value(fountain_x, fountain_y);
+    const int before_tile = before & LOMASK;
+    const int next_tile = Micropolis::getNextAnimatedTile(before_tile);
+    if (next_tile < 0 || next_tile == before_tile) {
+        return fail(39, "fountain tile is not in the animation table");
+    }
+    animated.tick();
+    const int after = animated.map_value(fountain_x, fountain_y);
+    if ((after & LOMASK) != next_tile || (after & ALLBITS) != (before & ALLBITS)) {
+        return fail(40, "tick did not animate the fountain");
+    }
+    const int next_again = Micropolis::getNextAnimatedTile(next_tile);
+    animated.tick();
+    if ((animated.map_value(fountain_x, fountain_y) & LOMASK) != next_again) {
+        return fail(41, "a second tick did not advance the fountain");
     }
     return 0;
 }

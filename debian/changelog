@@ -1,3 +1,17 @@
+lunduke-city (0.7-3) unstable; urgency=medium
+
+  * LCOS 0.7-3 on the 0.7 track. Each session tick animates map tiles
+    after the simulation step, so traffic, fountains, and smokestacks
+    move. The vendored engine is a modified version of the upstream
+    sources: voteProblems() no longer reads past the problem table, and
+    destroy() frees sprites as well as map arrays. NOTICE records the
+    modification (GPL section 7 and the additional terms).
+  * Keeps the 0.7-2 New City wizard, graphs, evaluation, rename, and
+    About dialog, and the 0.3 / 0.7-1 map, sprites, budget, sound,
+    overlays, Ctrl-+ zoom, placement preview, Play Scenario, and icon.
+
+ -- LCOS <lcos@lunduke.com>  Mon, 28 Sep 2026 22:20:00 +0000
+
 lunduke-city (0.7-2) unstable; urgency=medium
 
   * LCOS 0.7-2 on the 0.7 track. New City is a three-step wizard

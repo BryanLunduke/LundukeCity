@@ -290,7 +290,10 @@ void Micropolis::voteProblems(const short problemTable[PROBNUM])
             voteCount++;
         }
         problem++;
-        if (problem > PROBNUM) {
+        // Lunduke City change: PROBNUM is the length of problemTable, not a
+        // valid index. The original `>` test read problemTable[PROBNUM] and
+        // wrote problemVotes[PROBNUM], which is problemOrder[0].
+        if (problem >= PROBNUM) {
             problem = 0;
         }
         loopCount++;

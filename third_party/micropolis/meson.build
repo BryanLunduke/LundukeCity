@@ -30,8 +30,10 @@ micropolis_src = files(
   'MicropolisEngine/src/zone.cpp',
 )
 
-# Unmodified upstream sources. -Wno-register keeps the historical
-# `register` keyword (legal in this engine, removed from C++17) quiet.
+# Vendored engine, with the Lunduke City edits described in
+# third_party/micropolis/README.md and NOTICE. -Wno-register keeps the
+# historical `register` keyword (legal in this engine, removed from
+# C++17) quiet.
 micropolis_lib = static_library(
   'micropolis',
   micropolis_src,

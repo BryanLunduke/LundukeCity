@@ -28,8 +28,15 @@ Comment:
  Vendored from https://github.com/SimHacker/micropolis
  commit c98f6b08519887b450d9be198bfca5237aab6d0c
  path MicropolisCore/src/MicropolisEngine/src
- (upstream commit date 2026-02-10).
- These sources are unmodified. Tcl/Tk is not part of this import.
+ (upstream commit date 2026-02-10), then modified by Lunduke City.
+ This is a modified version of that engine and is not the original
+ program (GNU GPL version 3, section 7, and the additional terms
+ below). The Lunduke City changes are:
+ voteProblems() wraps the problem index with >= PROBNUM, so a yearly
+ evaluation does not read past problemTable or write problemOrder[0];
+ destroy() frees sprites on the active list and the free list as well
+ as the map arrays.
+ Tcl/Tk is not part of this import.
  See third_party/micropolis/README.md.
 
 Files: third_party/micropolis-assets/images/*

@@ -757,13 +757,35 @@ void Micropolis::init()
 }
 
 
+static void freeSpriteChain(Micropolis *sim, SimSprite *sprite)
+{
+    while (sprite != NULL) {
+        SimSprite *next = sprite->next;
+        if (sprite->name != NULL) {
+            sim->freePtr(sprite->name);
+            sprite->name = NULL;
+        }
+        sim->freePtr(sprite);
+        sprite = next;
+    }
+}
+
+
 void Micropolis::destroy()
 {
-
     destroyMapArrays();
 
-    // TODO: Clean up all other stuff:
+    // Lunduke City change: sprites are claimed with newPtr (the active
+    // list and the recycle pool). destroySprite() only returns a sprite
+    // to that pool, so both chains have to be released here.
+    freeSpriteChain(this, spriteList);
+    spriteList = NULL;
+    freeSpriteChain(this, freeSprites);
+    freeSprites = NULL;
 
+    for (int i = 0; i < SPRITE_COUNT; i++) {
+        globalSprites[i] = NULL;
+    }
 }
 
 
