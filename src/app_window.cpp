@@ -263,6 +263,7 @@ void AppWindow::bind_session()
         session_->use_tool(tool_by_index(tools_.selected())->engine_id, x, y);
         refresh();
     });
+    map_.signal_zoom.connect(sigc::mem_fun(*this, &AppWindow::zoom_by));
     map_.signal_tool_drag.connect([this](int x0, int y0, int x1, int y1) {
         session_->drag_tool(tool_by_index(tools_.selected())->engine_id, x0, y0, x1, y1);
         refresh();
@@ -329,6 +330,18 @@ void AppWindow::refresh()
         message_label_.set_text(tool_hint_);
     }
 
+    // Query used to vanish into the tool hint. Keep a dialog open with the
+    // zone report, and pin that report on the message bar.
+    if (session_->query_serial() != shown_query_serial_) {
+        shown_query_serial_ = session_->query_serial();
+        if (!engine_message.empty()) {
+            message_label_.set_text(engine_message);
+            shown_engine_message_ = engine_message;
+            hint_after_ = now + std::chrono::hours(1);
+            show_query_dialog(engine_message);
+        }
+    }
+
     map_.queue_draw();
     minimap_.queue_draw();
     demand_.queue_draw();
@@ -373,6 +386,16 @@ void AppWindow::show_tool_hint()
     message_label_.set_text(tool_hint_);
 }
 
+void AppWindow::clear_transient_message()
+{
+    shown_engine_message_.clear();
+    hint_after_ = {};
+    if (query_dialog_) {
+        query_dialog_->hide();
+    }
+    show_tool_hint();
+}
+
 void AppWindow::set_speed(int speed)
 {
     speed_ = speed;
@@ -395,6 +418,54 @@ void AppWindow::zoom_by(int delta)
     center_on_fraction(0.5, 0.5);
 }
 
+void AppWindow::show_query_dialog(const std::string &text)
+{
+    if (!query_dialog_) {
+        query_dialog_ = std::make_unique<Gtk::Dialog>("Query", *this, false);
+        query_dialog_->set_transient_for(*this);
+        query_dialog_->set_modal(false);
+        query_dialog_->add_button("_Close", Gtk::RESPONSE_CLOSE);
+        query_dialog_->set_default_size(380, 240);
+        query_body_ = Gtk::manage(new Gtk::Label());
+        query_body_->set_halign(Gtk::ALIGN_START);
+        query_body_->set_valign(Gtk::ALIGN_START);
+        query_body_->set_xalign(0);
+        query_body_->set_yalign(0);
+        query_body_->set_line_wrap(true);
+        query_body_->set_max_width_chars(40);
+        query_body_->set_selectable(true);
+        auto *content = query_dialog_->get_content_area();
+        content->set_border_width(12);
+        content->set_spacing(6);
+        content->pack_start(*query_body_, Gtk::PACK_EXPAND_WIDGET);
+        query_dialog_->signal_response().connect([this](int) { query_dialog_->hide(); });
+        query_dialog_->signal_delete_event().connect([this](GdkEventAny *) {
+            query_dialog_->hide();
+            return true;
+        });
+    }
+
+    std::string body;
+    body.reserve(text.size() + 8);
+    for (std::size_t i = 0; i < text.size();) {
+        if (text.compare(i, 3, " — ") == 0) {
+            body.push_back('\n');
+            i += 3;
+            continue;
+        }
+        if (text.compare(i, 2, ", ") == 0) {
+            body.push_back('\n');
+            i += 2;
+            continue;
+        }
+        body.push_back(text[i]);
+        ++i;
+    }
+    query_body_->set_text(body);
+    query_dialog_->show_all();
+    query_dialog_->present();
+}
+
 bool AppWindow::on_tick()
 {
     session_->tick();
@@ -406,6 +477,7 @@ bool AppWindow::on_key_press_event(GdkEventKey *event)
 {
     if (event != nullptr) {
         // Shift is not required. Ctrl and the +/= key arrives as GDK_KEY_equal.
+        // Ctrl and the minus key arrives as GDK_KEY_minus.
         const ZoomAction action = zoom_action(event->keyval, event->state);
         if (action == ZoomAction::In) {
             zoom_by(2);
@@ -430,7 +502,7 @@ void AppWindow::on_new_city()
     session_->new_city(spec);
     session_->set_speed(speed_);
     sync_option_checks();
-    show_tool_hint();
+    clear_transient_message();
     refresh();
     center_on_fraction(0.5, 0.5);
 }
@@ -496,6 +568,7 @@ void AppWindow::on_load_city()
     }
     session_->set_speed(speed_);
     sync_option_checks();
+    clear_transient_message();
     refresh();
     center_on_fraction(0.5, 0.5);
 }
@@ -628,7 +701,7 @@ void AppWindow::on_play_scenario()
     }
     session_->set_speed(speed_);
     sync_option_checks();
-    show_tool_hint();
+    clear_transient_message();
     refresh();
     center_on_fraction(0.5, 0.5);
 }

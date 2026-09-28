@@ -5,6 +5,7 @@
 // Headless checks for the 0.2 bridge: budget funding, overlay samples,
 // sprite state, and sound startup. No window is opened.
 
+#include "city_seed.hpp"
 #include "city_session.hpp"
 #include "sound_player.hpp"
 #include "tools.hpp"
@@ -279,6 +280,21 @@ int main()
         return fail(31, "easy difficulty should start with $20,000");
     }
 
+    CitySeedParse parsed;
+    if (!parse_city_seed("  7777 ", parsed) || parsed.from_clock || parsed.value != 7777) {
+        return fail(42, "a typed seed should be kept");
+    }
+    if (!parse_city_seed("", parsed) || !parsed.from_clock || !parse_city_seed(" Auto ", parsed) ||
+        !parsed.from_clock) {
+        return fail(43, "blank and auto should take the seed from the clock");
+    }
+    if (!parse_city_seed("0", parsed) || parsed.from_clock || parsed.value != 0) {
+        return fail(44, "an explicit 0 is a seed, not the clock");
+    }
+    if (parse_city_seed("12x", parsed)) {
+        return fail(45, "a non-numeric seed should be rejected");
+    }
+
     if (session.history_value(CitySession::HistorySeries::CashFlow, CitySession::HistoryScale::Short, 0) !=
             128 ||
         session.history_value(CitySession::HistorySeries::Residential, CitySession::HistoryScale::Short, 0) !=
@@ -354,6 +370,55 @@ int main()
     animated.tick();
     if ((animated.map_value(fountain_x, fountain_y) & LOMASK) != next_again) {
         return fail(41, "a second tick did not advance the fountain");
+    }
+
+    CitySession::NewCitySpec typed;
+    typed.name = "Seeded";
+    typed.seed_was_set = true;
+    typed.seed = 7777;
+    session.new_city(typed);
+    if (session.generated_seed() != 7777) {
+        return fail(46, "generation ignored the entered seed");
+    }
+    typed.seed = 0;
+    typed.seed_was_set = true;
+    session.new_city(typed);
+    if (session.generated_seed() != 0) {
+        return fail(47, "an explicit zero seed was replaced");
+    }
+
+    session.use_tool(TOOL_QUERY, 8, 8);
+    const std::string queried = session.message();
+    if (queried.empty() || session.query_serial() < 1 || queried.find("—") == std::string::npos) {
+        return fail(48, "query tool did not report the tile");
+    }
+    const int serial_before = session.query_serial();
+    bool found_plant = false;
+    for (int y = 2; y < CitySession::kWorldH - 2 && !found_plant; ++y) {
+        for (int x = 2; x < CitySession::kWorldW - 2 && !found_plant; ++x) {
+            bool clear = true;
+            for (int dy = -1; dy <= 2 && clear; ++dy) {
+                for (int dx = -1; dx <= 2; ++dx) {
+                    if ((session.map_value(x + dx, y + dy) & LOMASK) != DIRT) {
+                        clear = false;
+                        break;
+                    }
+                }
+            }
+            if (!clear) {
+                continue;
+            }
+            session.use_tool(TOOL_COALPOWER, x, y);
+            if ((session.map_value(x, y) & LOMASK) == DIRT) {
+                continue;
+            }
+            session.use_tool(TOOL_QUERY, x, y);
+            found_plant = session.message().find("Coal") != std::string::npos ||
+                          session.message().find("Power") != std::string::npos;
+        }
+    }
+    if (!found_plant || session.query_serial() <= serial_before) {
+        return fail(49, "query did not describe a power plant");
     }
     return 0;
 }

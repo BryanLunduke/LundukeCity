@@ -4,6 +4,8 @@
 
 #include "new_city_dialog.hpp"
 
+#include "city_seed.hpp"
+
 #include <gdkmm/pixbuf.h>
 #include <glibmm/main.h>
 #include <gtkmm/box.h>
@@ -14,7 +16,6 @@
 #include <gtkmm/label.h>
 #include <gtkmm/radiobutton.h>
 #include <gtkmm/scrolledwindow.h>
-#include <gtkmm/spinbutton.h>
 #include <gtkmm/stack.h>
 
 namespace {
@@ -163,14 +164,16 @@ bool run_new_city_wizard(Gtk::Window &parent, CitySession::NewCitySpec &spec, co
     tree_box.pack_start(*tree_wooded, Gtk::PACK_SHRINK);
     land->pack_start(*group("Trees", tree_box), Gtk::PACK_SHRINK);
 
-    auto seed_adjust = Gtk::Adjustment::create(0, 0, 999999999, 1, 100, 0);
-    auto *seed = Gtk::manage(new Gtk::SpinButton(seed_adjust, 1, 0));
-    seed->set_numeric(true);
-    seed->set_snap_to_ticks(true);
+    // A text entry, not a spin button. A spin button keeps its numeric value
+    // at 0 until focus leaves the field, so Next/Generate (and Alt mnemonics)
+    // were reading 0 and reporting "chosen from the clock".
+    auto *seed = Gtk::manage(new Gtk::Entry());
+    seed->set_placeholder_text("auto");
+    seed->set_width_chars(16);
     Gtk::Box seed_box(Gtk::ORIENTATION_VERTICAL, 4);
     seed_box.pack_start(*seed, Gtk::PACK_SHRINK);
-    seed_box.pack_start(*note("0 takes a seed from the clock. Any other integer is passed "
-                              "straight to the map generator."),
+    seed_box.pack_start(*note("Leave blank, or type auto, to take a seed from the clock. "
+                              "Any other whole number, including 0, is the map seed."),
                         Gtk::PACK_SHRINK);
     land->pack_start(*group("Seed", seed_box), Gtk::PACK_SHRINK);
 
@@ -291,7 +294,14 @@ bool run_new_city_wizard(Gtk::Window &parent, CitySession::NewCitySpec &spec, co
         spec.rivers = chosen_rivers();
         spec.lakes = chosen_lakes();
         spec.trees = chosen_trees();
-        spec.seed = seed->get_value_as_int();
+        CitySeedParse parsed;
+        if (!parse_city_seed(seed->get_text(), parsed) || parsed.from_clock) {
+            spec.seed = 0;
+            spec.seed_was_set = false;
+        } else {
+            spec.seed = parsed.value;
+            spec.seed_was_set = true;
+        }
     };
     auto refresh_summary = [&] {
         fill_spec();
@@ -299,7 +309,7 @@ bool run_new_city_wizard(Gtk::Window &parent, CitySession::NewCitySpec &spec, co
         if (name.empty()) {
             name = "New City";
         }
-        std::string seed_text = spec.seed == 0 ? "chosen from the clock" : std::to_string(spec.seed);
+        std::string seed_text = spec.seed_was_set ? std::to_string(spec.seed) : "chosen from the clock";
         summary->set_text(std::string("Name: ") + name + "\nDifficulty: " + difficulty_blurb(spec.difficulty) +
                           "\nIsland: " + island_blurb() + "\nRivers: " + rivers_blurb() + "\nLakes: " +
                           lakes_blurb() + "\nTrees: " + trees_blurb() + "\nSeed: " + seed_text);

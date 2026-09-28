@@ -8,6 +8,7 @@
 #include "sprite_art.hpp"
 #include "tile_atlas.hpp"
 #include "tools.hpp"
+#include "zoom_keys.hpp"
 
 #include "micropolis.h"
 
@@ -19,8 +20,9 @@
 
 MapView::MapView()
 {
+    set_can_focus(true);
     add_events(Gdk::BUTTON_PRESS_MASK | Gdk::BUTTON_RELEASE_MASK | Gdk::POINTER_MOTION_MASK |
-               Gdk::BUTTON1_MOTION_MASK | Gdk::LEAVE_NOTIFY_MASK);
+               Gdk::BUTTON1_MOTION_MASK | Gdk::LEAVE_NOTIFY_MASK | Gdk::KEY_PRESS_MASK);
     set_tile_size(tile_size_);
 }
 
@@ -108,6 +110,9 @@ bool MapView::on_button_press_event(GdkEventButton *event)
     dragging_ = true;
     last_x_ = tx;
     last_y_ = ty;
+    // A click on the map leaves it focused, so the next Ctrl+= / Ctrl+-
+    // is delivered here as well as through the window accelerator.
+    grab_focus();
     signal_tool_down.emit(tx, ty);
     return true;
 }
@@ -148,6 +153,24 @@ bool MapView::on_leave_notify_event(GdkEventCrossing *)
 {
     clear_hover();
     return true;
+}
+
+bool MapView::on_key_press_event(GdkEventKey *event)
+{
+    if (event != nullptr) {
+        // The window also binds these keys. This path covers a key event
+        // delivered straight to the focused map (Ctrl+= and Ctrl+-).
+        const ZoomAction action = zoom_action(event->keyval, event->state);
+        if (action == ZoomAction::In) {
+            signal_zoom.emit(2);
+            return true;
+        }
+        if (action == ZoomAction::Out) {
+            signal_zoom.emit(-2);
+            return true;
+        }
+    }
+    return Gtk::DrawingArea::on_key_press_event(event);
 }
 
 void MapView::draw_footprint(const Cairo::RefPtr<Cairo::Context> &cr) const
