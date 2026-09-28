@@ -290,7 +290,7 @@ void Micropolis::voteProblems(const short problemTable[PROBNUM])
             voteCount++;
         }
         problem++;
-        if (problem > PROBNUM) {
+        if (problem >= PROBNUM) { // Lunduke City: was '>', read past the table
             problem = 0;
         }
         loopCount++;

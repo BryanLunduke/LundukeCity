@@ -82,8 +82,8 @@ budget funding, overlay samples, a sprite report, and sound startup
 Sources live in `third_party/micropolis/MicropolisEngine/`, taken from
 [SimHacker/micropolis](https://github.com/SimHacker/micropolis) commit
 `c98f6b08519887b450d9be198bfca5237aab6d0c`, path
-`MicropolisCore/src/MicropolisEngine/src`. They are unmodified and compiled
-as a static library. Provenance details are in
+`MicropolisCore/src/MicropolisEngine/src`. They carry a few marked bug
+fixes (listed in that README) and are compiled as a static library. Provenance details are in
 [third_party/micropolis/README.md](third_party/micropolis/README.md).
 
 Tiles, sprites, and sounds are vendored under

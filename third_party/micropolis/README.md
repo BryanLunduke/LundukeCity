@@ -22,9 +22,20 @@ are imported. The upstream Python extension, SWIG bindings, and Tcl/Tk
 interface are not part of this tree and are not required to build or run
 Lunduke City.
 
-These engine sources are unmodified. The Lunduke City build compiles them
-as a static library with `-Wno-register` so the historical `register`
-storage class still accepted by this compiler does not clutter the log.
+The Lunduke City build compiles these sources as a static library with
+`-Wno-register` so the historical `register` storage class still accepted
+by this compiler does not clutter the log.
+
+## Local modifications
+
+This is a modified version of the upstream engine. Each change is marked
+with a `Lunduke City:` comment at the changed line.
+
+- `evaluate.cpp`, `voteProblems()`: the vote loop wrapped with
+  `problem > PROBNUM`, so it read `problemTable[PROBNUM]` past the end of
+  the table and could increment `problemVotes[PROBNUM]`, which overwrites
+  `problemOrder[0]`. It now wraps at `PROBNUM`. The bug dates to the 1989
+  C code (`VoteProblems` in `s_eval.c`).
 
 ## What the UI uses
 

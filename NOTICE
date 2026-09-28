@@ -29,8 +29,9 @@ Comment:
  commit c98f6b08519887b450d9be198bfca5237aab6d0c
  path MicropolisCore/src/MicropolisEngine/src
  (upstream commit date 2026-02-10).
- These sources are unmodified. Tcl/Tk is not part of this import.
- See third_party/micropolis/README.md.
+ Tcl/Tk is not part of this import. These sources are modified by
+ Lunduke City; each change is marked in the source and listed in
+ third_party/micropolis/README.md.
 
 Files: third_party/micropolis-assets/images/*
        third_party/micropolis-assets/res/*
