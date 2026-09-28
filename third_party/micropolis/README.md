@@ -22,15 +22,31 @@ are imported. The upstream Python extension, SWIG bindings, and Tcl/Tk
 interface are not part of this tree and are not required to build or run
 Lunduke City.
 
-These engine sources are unmodified. The Lunduke City build compiles them
-as a static library with `-Wno-register` so the historical `register`
-storage class still accepted by this compiler does not clutter the log.
+These engine sources are a modified version of that upstream tree, not
+the original program. GNU GPL version 3 section 7 and the additional
+terms in the top-level `NOTICE` require modified versions to be marked.
+The Lunduke City edits are:
+
+- `evaluate.cpp`: `voteProblems()` wraps the problem index with
+  `>= PROBNUM`. The previous `>` test read one element past
+  `problemTable` and wrote `problemVotes[PROBNUM]`, which is
+  `problemOrder[0]`.
+- `micropolis.cpp`: `destroy()` frees every sprite on the active list
+  and the free list (including sprite names) in addition to the map
+  arrays. `destroySprite()` only returns a sprite to the free list.
+- `micropolis.h`: `voteProblems()` and `destroy()` stay private. The
+  headless regression test is declared as a friend so it can call them.
+
+The Lunduke City build compiles the sources as a static library with
+`-Wno-register` so the historical `register` storage class still
+accepted by this compiler does not clutter the log.
 
 ## What the UI uses
 
 Lunduke City constructs a `Micropolis` object, calls `simInit()` and
 `generateSomeCity()`, places tools with `doTool()` / `toolDrag()`, and
-advances time with `simTick()`. Map tiles, funds, the date, demand
+advances time with `simTick()` followed by `animateTiles()` (the same
+order the upstream front ends use). Map tiles, funds, the date, demand
 valves, and messages are read back through the engine's public fields
 and the scripting callback hook (`callbackHook`). The UI does not call
 `environmentInit()` and does not look up `res/stri` string tables.

@@ -1037,6 +1037,9 @@ private:
 
     void destroy();
 
+    // Headless regression test in tests/engine_fixes.cpp.
+    friend int lunduke_city_test_destroy_sprites();
+
 
     ////////////////////////////////////////////////////////////////////////
     // allocate.cpp
@@ -1737,6 +1740,9 @@ private:
     void doProblems(short problemTable[PROBNUM]);
 
     void voteProblems(const short problemTable[PROBNUM]);
+
+    // Headless regression test in tests/engine_fixes.cpp.
+    friend int lunduke_city_test_vote_problems();
 
     short getTrafficAverage();
 
