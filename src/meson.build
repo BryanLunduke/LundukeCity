@@ -19,9 +19,6 @@ executable(
   'lunduke-city',
   lunduke_city_src,
   dependencies: [gtkmm_dep, micropolis_dep, thread_dep],
-  cpp_args: [
-    '-DLUNDUKE_CITY_ASSET_DIR="' + lunduke_asset_dir + '"',
-    '-DLUNDUKE_CITY_SOURCE_DIR="' + meson.project_source_root() + '"',
-  ],
+  cpp_args: '-DLUNDUKE_CITY_ASSET_DIR="' + lunduke_asset_dir + '"',
   install: true,
 )

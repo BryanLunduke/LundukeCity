@@ -1,7 +1,7 @@
 #!/bin/sh
 # Build lunduke-city_0.3-1_amd64.deb into packaging/debs/ (repo-local).
 # Does NOT seed lcos-live-07 (Phil seeds by hand into packages.chroot).
-# meson install ships Icon=lunduke-city into hicolor (SVG plus 16/32/256).
+# meson install ships Icon=lunduke-city into hicolor (SVG plus 16/32/48/64/128/256).
 set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"

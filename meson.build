@@ -18,23 +18,17 @@ install_data(
   'data/lunduke-city.desktop',
   install_dir: get_option('datadir') / 'applications',
 )
-# Icon=lunduke-city. Same hicolor layout as Lunduke Paint.
+# Icon=lunduke-city. Scalable SVG plus hicolor PNGs.
 install_data(
-  'data/icons/hicolor/scalable/apps/lunduke-city.svg',
+  'data/lunduke-city.svg',
   install_dir: get_option('datadir') / 'icons' / 'hicolor' / 'scalable' / 'apps',
 )
-install_data(
-  'data/icons/hicolor/16x16/apps/lunduke-city.png',
-  install_dir: get_option('datadir') / 'icons' / 'hicolor' / '16x16' / 'apps',
-)
-install_data(
-  'data/icons/hicolor/32x32/apps/lunduke-city.png',
-  install_dir: get_option('datadir') / 'icons' / 'hicolor' / '32x32' / 'apps',
-)
-install_data(
-  'data/icons/hicolor/256x256/apps/lunduke-city.png',
-  install_dir: get_option('datadir') / 'icons' / 'hicolor' / '256x256' / 'apps',
-)
+foreach size : ['16', '32', '48', '64', '128', '256']
+  install_data(
+    'data/icons/hicolor/' + size + 'x' + size + '/apps/lunduke-city.png',
+    install_dir: get_option('datadir') / 'icons' / 'hicolor' / (size + 'x' + size) / 'apps',
+  )
+endforeach
 install_subdir(
   'third_party/micropolis-assets',
   install_dir: get_option('datadir') / 'lunduke-city',

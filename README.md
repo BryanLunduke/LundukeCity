@@ -29,7 +29,8 @@ ninja -C build
 
 The installed binary name is `lunduke-city`. A desktop entry and the
 roadmap-blueprint icon are installed with `ninja -C build install`
-(`Icon=lunduke-city` in hicolor).
+(`Icon=lunduke-city`: scalable SVG from `data/lunduke-city.svg`, plus
+hicolor PNGs at 16, 32, 48, 64, 128, and 256).
 
 `meson test -C build` runs headless checks: the engine smoke test, plus
 budget funding, overlay samples, a sprite report, and sound startup
@@ -45,6 +46,7 @@ budget funding, overlay samples, a sprite report, and sound startup
 - System → Play Scenario… lists the eight engine scenarios (Dullsville
   through Rio de Janeiro) and starts the one you pick.
 - The desktop and window icon are the roadmap blueprint (`lunduke-city`).
+  The window sets that name with `set_default_icon_name` and `set_icon_name`.
 
 ## What 0.2 does
 

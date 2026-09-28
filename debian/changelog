@@ -4,8 +4,9 @@ lunduke-city (0.3-1) unstable; urgency=medium
     outlines, and System → Play Scenario… for the eight engine scenarios.
   * Vendored scenario cities (res/snro.*) from the same Micropolis commit
     as the engine.
-  * App icon is the roadmap blueprint, installed as lunduke-city in
-    hicolor and used for the window icon.
+  * App icon is the roadmap blueprint (data/lunduke-city.svg plus
+    hicolor PNGs at 16, 32, 48, 64, 128, and 256). Window uses
+    set_default_icon_name and set_icon_name("lunduke-city").
 
  -- LCOS <lcos@lunduke.com>  Mon, 28 Sep 2026 01:10:00 +0000
 
