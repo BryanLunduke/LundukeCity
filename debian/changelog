@@ -1,3 +1,12 @@
+lunduke-city (0.7-1) unstable; urgency=medium
+
+  * LCOS 0.7 release-track identity bump (0.7-1). Same application as
+    0.3-1: Ctrl-+ zoom without Shift, placement footprint preview,
+    System → Play Scenario…, and the roadmap icon (SVG, hicolor, and
+    window set_icon). No feature changes.
+
+ -- LCOS <lcos@lunduke.com>  Mon, 28 Sep 2026 02:30:00 +0000
+
 lunduke-city (0.3-1) unstable; urgency=medium
 
   * Lunduke City 0.3: Ctrl-+ zooms in without Shift, placement preview
