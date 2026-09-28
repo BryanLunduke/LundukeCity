@@ -36,6 +36,9 @@ with a `Lunduke City:` comment at the changed line.
   the table and could increment `problemVotes[PROBNUM]`, which overwrites
   `problemOrder[0]`. It now wraps at `PROBNUM`. The bug dates to the 1989
   C code (`VoteProblems` in `s_eval.c`).
+- `micropolis.cpp`, `destroy()`: freed only the map arrays and left a
+  `TODO`, so live sprites and the free-sprite pool leaked when the engine
+  was destroyed. It now frees both.
 
 ## What the UI uses
 

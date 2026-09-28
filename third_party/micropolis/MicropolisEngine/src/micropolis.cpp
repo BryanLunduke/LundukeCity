@@ -762,6 +762,17 @@ void Micropolis::destroy()
 
     destroyMapArrays();
 
+    // Lunduke City: free the sprites. destroySprite() unlinks each live
+    // sprite, frees its name and moves it to the free pool.
+    while (spriteList != NULL) {
+        destroySprite(spriteList);
+    }
+    while (freeSprites != NULL) {
+        SimSprite *next = freeSprites->next;
+        freePtr(freeSprites);
+        freeSprites = next;
+    }
+
     // TODO: Clean up all other stuff:
 
 }
