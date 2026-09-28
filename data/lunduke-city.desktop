@@ -2,8 +2,6 @@
 Name=Lunduke City
 Comment=Build and manage a city
 Exec=lunduke-city
-# Icon= is a placeholder. Bob will drop in the SVG later for this desktop
-# entry and the top-left window icon.
 Icon=lunduke-city
 Terminal=false
 Type=Application

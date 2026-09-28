@@ -18,12 +18,22 @@ install_data(
   'data/lunduke-city.desktop',
   install_dir: get_option('datadir') / 'applications',
 )
-# Placeholder artwork. Bob will supply the SVG used by the desktop Icon=
-# name and the top-left window icon. Do not replace this file with a
-# newly drawn "final" icon.
+# Icon=lunduke-city. Same hicolor layout as Lunduke Paint.
 install_data(
-  'data/lunduke-city.svg',
+  'data/icons/hicolor/scalable/apps/lunduke-city.svg',
   install_dir: get_option('datadir') / 'icons' / 'hicolor' / 'scalable' / 'apps',
+)
+install_data(
+  'data/icons/hicolor/16x16/apps/lunduke-city.png',
+  install_dir: get_option('datadir') / 'icons' / 'hicolor' / '16x16' / 'apps',
+)
+install_data(
+  'data/icons/hicolor/32x32/apps/lunduke-city.png',
+  install_dir: get_option('datadir') / 'icons' / 'hicolor' / '32x32' / 'apps',
+)
+install_data(
+  'data/icons/hicolor/256x256/apps/lunduke-city.png',
+  install_dir: get_option('datadir') / 'icons' / 'hicolor' / '256x256' / 'apps',
 )
 install_subdir(
   'third_party/micropolis-assets',

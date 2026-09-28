@@ -12,6 +12,7 @@
 
 #include <gdkmm/pixbuf.h>
 #include <glibmm/main.h>
+#include <gtkmm/icontheme.h>
 #include <gtk/gtk.h>
 #include <gtkmm/dialog.h>
 #include <gtkmm/entry.h>
@@ -26,6 +27,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <fstream>
+#include <unistd.h>
 
 static_assert(static_cast<unsigned>(GDK_KEY_equal) == 0x03d, "equal keysym");
 static_assert(static_cast<unsigned>(GDK_KEY_plus) == 0x02b, "plus keysym");
@@ -35,14 +37,61 @@ static_assert(static_cast<unsigned>(GDK_KEY_KP_Subtract) == 0xffad, "keypad minu
 static_assert(static_cast<unsigned>(Gdk::CONTROL_MASK) == 4u, "control mask");
 static_assert(static_cast<unsigned>(Gdk::MOD1_MASK) == 8u, "alt mask");
 
+namespace {
+
+bool icon_svg_here(const std::string &base)
+{
+    std::ifstream in(base + "/hicolor/scalable/apps/lunduke-city.svg", std::ios::binary);
+    return in.good();
+}
+
+// Directory that contains hicolor/…/lunduke-city.svg, or empty.
+std::string icon_theme_base()
+{
+#ifdef LUNDUKE_CITY_SOURCE_DIR
+    const std::string source = std::string(LUNDUKE_CITY_SOURCE_DIR) + "/data/icons";
+    if (icon_svg_here(source)) {
+        return source;
+    }
+#endif
+    char buf[4096];
+    const ssize_t n = ::readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    if (n > 0) {
+        buf[n] = '\0';
+        std::string path(buf);
+        const auto slash = path.find_last_of('/');
+        if (slash != std::string::npos) {
+            const std::string installed = path.substr(0, slash) + "/../share/icons";
+            if (icon_svg_here(installed)) {
+                return installed;
+            }
+        }
+    }
+    if (icon_svg_here("/usr/share/icons")) {
+        return "/usr/share/icons";
+    }
+    return {};
+}
+
+void apply_window_icon(Gtk::Window &window)
+{
+    const std::string base = icon_theme_base();
+    if (!base.empty()) {
+        Gtk::IconTheme::get_default()->append_search_path(base);
+    }
+    // Same pair Lunduke Edit uses, named to match Icon= in the desktop file.
+    Gtk::Window::set_default_icon_name("lunduke-city");
+    window.set_icon_name("lunduke-city");
+}
+
+} // namespace
+
 AppWindow::~AppWindow() = default;
 
 AppWindow::AppWindow()
 {
     set_title("Lunduke City");
-    // Window icon stays unset. data/lunduke-city.svg and the desktop file's
-    // Icon= name are a placeholder until Bob supplies the SVG for the
-    // desktop icon and this top-left window icon.
+    apply_window_icon(*this);
     set_default_size(1100, 740);
     session_ = std::make_unique<CitySession>();
     const CitySession::MapLayer layers[] = {

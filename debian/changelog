@@ -3,7 +3,9 @@ lunduke-city (0.3-1) unstable; urgency=medium
   * Lunduke City 0.3: Ctrl-+ zooms in without Shift, placement preview
     outlines, and System → Play Scenario… for the eight engine scenarios.
   * Vendored scenario cities (res/snro.*) from the same Micropolis commit
-    as the engine. Icon= remains a placeholder until Bob's SVG.
+    as the engine.
+  * App icon is the roadmap blueprint, installed as lunduke-city in
+    hicolor and used for the window icon.
 
  -- LCOS <lcos@lunduke.com>  Mon, 28 Sep 2026 01:10:00 +0000
 
