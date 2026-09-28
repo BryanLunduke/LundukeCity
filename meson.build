@@ -1,7 +1,7 @@
 project(
   'lunduke-city',
   'cpp',
-  version: '0.2.0',
+  version: '0.3.0',
   default_options: ['cpp_std=c++17', 'warning_level=2'],
   meson_version: '>= 0.60',
 )
@@ -18,6 +18,9 @@ install_data(
   'data/lunduke-city.desktop',
   install_dir: get_option('datadir') / 'applications',
 )
+# Placeholder artwork. Bob will supply the SVG used by the desktop Icon=
+# name and the top-left window icon. Do not replace this file with a
+# newly drawn "final" icon.
 install_data(
   'data/lunduke-city.svg',
   install_dir: get_option('datadir') / 'icons' / 'hicolor' / 'scalable' / 'apps',

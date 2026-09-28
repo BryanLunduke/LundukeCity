@@ -44,11 +44,13 @@ private:
     void center_on_fraction(double fx, double fy);
     void zoom_by(int delta);
     void grab_screenshot_if_requested();
+    void probe_zoom_if_requested();
 
     void on_new_city();
     void on_load_city();
     void on_save_city();
     void on_save_city_as();
+    void on_play_scenario();
     void on_budget();
     void on_evaluation();
     void on_overlay(CitySession::MapLayer layer);
@@ -58,6 +60,7 @@ private:
     void grab_followup_shots();
 
     bool on_tick();
+    bool on_key_press_event(GdkEventKey *event) override;
 
     std::unique_ptr<CitySession> session_;
 

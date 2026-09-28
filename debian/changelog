@@ -1,3 +1,12 @@
+lunduke-city (0.3-1) unstable; urgency=medium
+
+  * Lunduke City 0.3: Ctrl-+ zooms in without Shift, placement preview
+    outlines, and System → Play Scenario… for the eight engine scenarios.
+  * Vendored scenario cities (res/snro.*) from the same Micropolis commit
+    as the engine. Icon= remains a placeholder until Bob's SVG.
+
+ -- LCOS <lcos@lunduke.com>  Mon, 28 Sep 2026 01:10:00 +0000
+
 lunduke-city (0.2-1) unstable; urgency=medium
 
   * Initial Debian packaging of Lunduke City 0.2 for LCOS.

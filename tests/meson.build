@@ -13,6 +13,7 @@ features = executable(
   '../src/city_session.cpp',
   '../src/messages.cpp',
   '../src/sound_player.cpp',
+  '../src/tools.cpp',
   include_directories: include_directories('../src'),
   dependencies: [micropolis_dep, thread_dep],
   cpp_args: '-DLUNDUKE_CITY_ASSET_DIR="' + lunduke_asset_dir + '"',

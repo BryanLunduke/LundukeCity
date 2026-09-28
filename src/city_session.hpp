@@ -67,9 +67,22 @@ public:
 
     void set_listener(Listener listener);
 
+    // Pre-made scenarios the engine loads from res/snro.* (Dullsville
+    // through Rio de Janeiro). id matches the engine Scenario ordinal.
+    struct ScenarioDef {
+        int id = 0;
+        const char *name = "";
+        int year = 0;
+        const char *summary = "";
+    };
+
+    static constexpr int kScenarioCount = 8;
+    static const ScenarioDef &scenario_def(int index);
+
     void new_city(const std::string &name, int seed = 0);
     bool load_city(const std::string &path);
     bool save_city_as(const std::string &path);
+    bool load_scenario(int id);
 
     void tick();
     void use_tool(int engine_tool, int tile_x, int tile_y);

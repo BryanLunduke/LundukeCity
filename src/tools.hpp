@@ -18,3 +18,17 @@ extern const int kToolCount;
 extern const int kDefaultToolIndex;
 
 const ToolDef *tool_by_index(int index);
+
+// Footprint of a placeable tool, in tiles. width/height follow the engine's
+// gToolSize[] (tool.cpp). Buildings larger than one tile use the cursor as
+// the center; buildBuilding() then steps one tile up and left (mapH--; mapV--),
+// which is cursor_to_left / cursor_to_top. Query is not placeable.
+struct ToolFootprint {
+    bool placeable = false;
+    int width = 1;
+    int height = 1;
+    int cursor_to_left = 0;
+    int cursor_to_top = 0;
+};
+
+ToolFootprint tool_footprint(int engine_id);
