@@ -4,11 +4,11 @@
 
 #pragma once
 
-// Packaging identity for the LCOS 0.7 track. The Debian revision is 0.7-4.
-// The Meson project version is the dotted form, 0.7.4.
+// Packaging identity for the LCOS 0.8 track. The Debian revision is 0.8-1.
+// The Meson project version is the dotted form, 0.8.0.
 #ifndef LUNDUKE_CITY_PACKAGE_VERSION
-#define LUNDUKE_CITY_PACKAGE_VERSION "0.7-4"
+#define LUNDUKE_CITY_PACKAGE_VERSION "0.8-1"
 #endif
 
 inline constexpr const char kPackageVersion[] = LUNDUKE_CITY_PACKAGE_VERSION;
-inline constexpr const char kReleaseTrack[] = "0.7";
+inline constexpr const char kReleaseTrack[] = "0.8";

@@ -1,3 +1,12 @@
+lunduke-city (0.8-1) unstable; urgency=medium
+
+  * LCOS 0.8 track identity bump (0.7-4 → 0.8 / Debian 0.8-1). Features
+    and UI unchanged. Retains 0.7-4 behavior (New City seed entry, Ctrl
+    zoom when the map has focus, Query zone report dialog) plus earlier
+    0.7-track tile animation, wizard, graphs, evaluation, and About.
+
+ -- LCOS <lcos@lunduke.com>  Mon, 28 Sep 2026 21:34:04 -0500
+
 lunduke-city (0.7-4) unstable; urgency=medium
 
   * LCOS 0.7-4 on the 0.7 track. New City seed is an entry field that

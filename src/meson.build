@@ -25,7 +25,7 @@ executable(
   dependencies: [gtkmm_dep, micropolis_dep, thread_dep],
   cpp_args: [
     '-DLUNDUKE_CITY_ASSET_DIR="' + lunduke_asset_dir + '"',
-    '-DLUNDUKE_CITY_PACKAGE_VERSION="0.7-4"',
+    '-DLUNDUKE_CITY_PACKAGE_VERSION="0.8-1"',
   ],
   install: true,
 )
