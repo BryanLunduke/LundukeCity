@@ -1,3 +1,12 @@
+lunduke-city (0.9-1) unstable; urgency=medium
+
+  * LCOS 0.9 track identity bump (0.8-2 → 0.9 / Debian 0.9-1). Features
+    and UI unchanged. Retains 0.8-2 behavior (query wording, save and
+    load, budget window, disaster view, zoom, evaluation, and sprite
+    cleanup).
+
+ -- LCOS <lcos@lunduke.com>  Sat, 03 Oct 2026 21:10:20 +0000
+
 lunduke-city (0.8-2) unstable; urgency=medium
 
   * Query describes population, land value, crime, pollution, and growth

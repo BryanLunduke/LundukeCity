@@ -49,7 +49,7 @@ AboutDialog::AboutDialog(Gtk::Window &parent)
     title->set_markup("<span size=\"xx-large\" weight=\"bold\">Lunduke City</span>");
     title->set_halign(Gtk::ALIGN_START);
 
-    auto *version = Gtk::manage(new Gtk::Label(std::string("Version ") + kPackageVersion));
+    auto *version = Gtk::manage(new Gtk::Label(std::string("Version ") + kReleaseTrack));
     version->set_halign(Gtk::ALIGN_START);
 
     content->pack_start(*title, Gtk::PACK_SHRINK);
