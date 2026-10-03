@@ -98,19 +98,22 @@ const char *kCategories[] = {
     "Open land",
 };
 
-const char *band(int value, const char *low, const char *mid, const char *high,
+// doZoneStatus() passes stri.202 category ids plus one, not one shared
+// 1–20 scale. Each field occupies four adjacent ids:
+//   population 1–4, land value 5–8, crime 9–12,
+//   pollution 13–16, growth 17–20.
+const char *band(int value, int origin, const char *low, const char *mid, const char *high,
                  const char *very_high)
 {
-    if (value <= 5) {
-        return low;
+    int index = value - origin;
+    if (index < 0) {
+        index = 0;
     }
-    if (value <= 10) {
-        return mid;
+    if (index > 3) {
+        index = 3;
     }
-    if (value <= 15) {
-        return high;
-    }
-    return very_high;
+    const char *words[] = {low, mid, high, very_high};
+    return words[index];
 }
 
 } // namespace
@@ -135,11 +138,11 @@ std::string zone_status_text(int tile_category, int population, int land_value,
         kind = kCategories[tile_category - 1];
     }
 
-    const char *pop = band(population, "sparse", "settled", "busy", "packed");
-    const char *land = band(land_value, "low", "modest", "high", "prime");
-    const char *crm = band(crime, "safe", "light", "moderate", "dangerous");
-    const char *pol = band(pollution, "clean", "light", "moderate", "heavy");
-    const char *gro = band(growth, "declining", "stable", "growing", "booming");
+    const char *pop = band(population, 1, "sparse", "settled", "busy", "packed");
+    const char *land = band(land_value, 5, "low", "modest", "high", "prime");
+    const char *crm = band(crime, 9, "safe", "light", "moderate", "dangerous");
+    const char *pol = band(pollution, 13, "clean", "light", "moderate", "heavy");
+    const char *gro = band(growth, 17, "declining", "stable", "growing", "booming");
 
     return std::string(kind) + " — population " + pop + ", land value " + land +
            ", crime " + crm + ", pollution " + pol + ", growth " + gro;

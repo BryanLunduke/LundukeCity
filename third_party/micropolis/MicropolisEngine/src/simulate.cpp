@@ -839,6 +839,10 @@ void Micropolis::collectTax()
 {
     short z;
 
+    // Last year's window may still be open. Charge that year once, using
+    // the rates the player left on the sliders, before taxFund is replaced.
+    commitBudgetPayment();
+
     /**
      * @todo Break out so the user interface can configure this.
      */

@@ -77,6 +77,16 @@ void MapView::set_tile_size(int pixels)
     queue_draw();
 }
 
+void MapView::set_shake(int dx, int dy)
+{
+    if (shake_x_ == dx && shake_y_ == dy) {
+        return;
+    }
+    shake_x_ = dx;
+    shake_y_ = dy;
+    queue_draw();
+}
+
 int MapView::pixel_width() const
 {
     return CitySession::kWorldW * tile_size_;
@@ -92,8 +102,8 @@ bool MapView::tile_at(double x, double y, int &tx, int &ty) const
     if (tile_size_ <= 0) {
         return false;
     }
-    tx = static_cast<int>(x) / tile_size_;
-    ty = static_cast<int>(y) / tile_size_;
+    tx = static_cast<int>(x - shake_x_) / tile_size_;
+    ty = static_cast<int>(y - shake_y_) / tile_size_;
     return tx >= 0 && ty >= 0 && tx < CitySession::kWorldW && ty < CitySession::kWorldH;
 }
 
@@ -253,6 +263,7 @@ bool MapView::on_draw(const Cairo::RefPtr<Cairo::Context> &cr)
     map_pixels_->mark_dirty();
 
     cr->save();
+    cr->translate(shake_x_, shake_y_);
     const double scale = static_cast<double>(tile_size_) / static_cast<double>(TileAtlas::kSize);
     cr->scale(scale, scale);
     cr->set_source(map_pixels_, 0, 0);

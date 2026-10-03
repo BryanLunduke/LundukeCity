@@ -97,6 +97,27 @@
  * Evaluate city
  * @todo Handle lack of voting explicitly
  */
+void Micropolis::cityEvaluationPreview()
+{
+    // The budget-year pass and the Evaluation window share cityPop,
+    // cityPopDelta, and cityScore. A mid-year open must not consume
+    // "net migration (last year)" or the next January's score change.
+    const Quad savedPop = cityPop;
+    const Quad savedDelta = cityPopDelta;
+    const short savedScore = cityScore;
+    const short savedScoreDelta = cityScoreDelta;
+    const CityClass savedClass = cityClass;
+
+    cityEvaluation();
+
+    cityPop = savedPop;
+    cityPopDelta = savedDelta;
+    cityScore = savedScore;
+    cityScoreDelta = savedScoreDelta;
+    cityClass = savedClass;
+}
+
+
 void Micropolis::cityEvaluation()
 {
     //printf("cityEvaluation totalPop %d\n", totalPop);

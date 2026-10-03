@@ -342,6 +342,31 @@ void AppWindow::refresh()
         }
     }
 
+    int goto_x = 0;
+    int goto_y = 0;
+    if (session_->take_view_target(goto_x, goto_y)) {
+        center_on_fraction((goto_x + 0.5) / static_cast<double>(CitySession::kWorldW),
+                           (goto_y + 0.5) / static_cast<double>(CitySession::kWorldH));
+    }
+    if (const int strength = session_->take_earthquake()) {
+        quake_strength_ = strength;
+        quake_started_ = now;
+        const int milliseconds = std::max(400, std::min(strength, 1200));
+        quake_until_ = now + std::chrono::milliseconds(milliseconds);
+    }
+    if (quake_strength_ > 0 && now < quake_until_) {
+        const int elapsed = static_cast<int>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(now - quake_started_).count());
+        const int amp = std::max(2, quake_strength_ / 80);
+        const int step = elapsed / 50;
+        const int dx = (step % 2 == 0) ? amp : -amp;
+        const int dy = ((step / 2) % 2 == 0) ? (amp / 2) : -(amp / 2);
+        map_.set_shake(dx, dy);
+    } else if (quake_strength_ > 0) {
+        quake_strength_ = 0;
+        map_.set_shake(0, 0);
+    }
+
     map_.queue_draw();
     minimap_.queue_draw();
     demand_.queue_draw();
@@ -414,8 +439,23 @@ void AppWindow::center_on_fraction(double fx, double fy)
 
 void AppWindow::zoom_by(int delta)
 {
-    map_.set_tile_size(map_.tile_size() + delta);
-    center_on_fraction(0.5, 0.5);
+    auto ha = scroll_.get_hadjustment();
+    auto va = scroll_.get_vadjustment();
+    const double old_w = std::max(1, map_.pixel_width());
+    const double old_h = std::max(1, map_.pixel_height());
+    // The point currently in the middle of the viewport stays there.
+    const double cx = (ha->get_value() + ha->get_page_size() * 0.5) / old_w;
+    const double cy = (va->get_value() + va->get_page_size() * 0.5) / old_h;
+    const int before = map_.tile_size();
+    map_.set_tile_size(before + delta);
+    if (map_.tile_size() == before) {
+        return;
+    }
+    // The scrolled window has not allocated the new child size yet.
+    // Set the range now so the center is applied in the new pixel space.
+    ha->set_upper(std::max(ha->get_page_size(), static_cast<double>(map_.pixel_width())));
+    va->set_upper(std::max(va->get_page_size(), static_cast<double>(map_.pixel_height())));
+    center_on_fraction(cx, cy);
 }
 
 void AppWindow::show_query_dialog(const std::string &text)

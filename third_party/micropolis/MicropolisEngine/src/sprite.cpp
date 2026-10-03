@@ -282,15 +282,20 @@ void Micropolis::initSprite(SimSprite *sprite, int x, int y)
 
 
 /**
- * Destroy all sprites by de-activating them all (setting their
- * SimSprite::frame to 0).
+ * Destroy all sprites.
+ *
+ * They are taken off the active list and returned to the free pool.
+ * Leaving them deactivated (frame 0) leaked them for the life of the
+ * process, and the view stopped walking the list.
  */
 void Micropolis::destroyAllSprites()
 {
-    SimSprite *sprite;
-
-    for (sprite = spriteList; sprite != NULL; sprite = sprite->next) {
-        sprite->frame = 0;
+    // Deactivating in place (frame = 0, name left as "") leaves the node
+    // on spriteList. moveObjects() only recycles those while the sim is
+    // running, and the view stops walking the list, so New City and
+    // scenarios leaked every sprite for the rest of the process.
+    while (spriteList != NULL) {
+        destroySprite(spriteList);
     }
 }
 
@@ -597,13 +602,11 @@ void Micropolis::moveObjects()
 
         } else {
 
-            if (sprite->name[0] == '\0') {
-                SimSprite *s = sprite;
-                sprite = sprite->next;
-                destroySprite(s);
-            } else {
-                sprite = sprite->next;
-            }
+            // Finished sprites are recycled whatever their name is.
+            // A non-empty name used to pin them on the list forever.
+            SimSprite *s = sprite;
+            sprite = sprite->next;
+            destroySprite(s);
 
         }
     }

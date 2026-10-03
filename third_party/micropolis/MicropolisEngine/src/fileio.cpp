@@ -110,7 +110,7 @@ static void swap_shorts(short *buf, int len)
  * @param buf Array with longs.
  * @param len Number of long values in the array.
  */
-static void half_swap_longs(long *buf, int len)
+static void __attribute__((unused)) half_swap_longs(long *buf, int len)
 {
     int i;
 
@@ -185,12 +185,83 @@ static bool save_short(short *buf, int len, FILE *f)
 {
     SWAP_SHORTS(buf, len);        /* to MAC */
 
-    if ((int)fwrite(buf, sizeof(short), len, f) != len) {
-        return false;
-    }
+    // A short write used to return with the buffer still in Mac order,
+    // so the live map and history stayed scrambled after a full disk.
+    const bool ok = (int)fwrite(buf, sizeof(short), len, f) == len;
 
     SWAP_SHORTS(buf, len);        /* back to intel */
 
+    return ok;
+}
+
+/**
+ * Classic .cty files store a 32-bit value in exactly two shorts, with the
+ * 16-bit halves swapped (the Mac long the original saver wrote). Quad is
+ * 8 bytes on this build, so writing one also covered the next two shorts.
+ */
+static void put_mac_long(short *slot, Quad value)
+{
+    const unsigned int bits = (unsigned int)(int)value;
+    const unsigned int swapped = ((bits & 0xffffu) << 16) | (bits >> 16);
+    slot[0] = (short)(swapped & 0xffffu);
+    slot[1] = (short)((swapped >> 16) & 0xffffu);
+}
+
+static Quad get_mac_long(const short *slot)
+{
+    const unsigned int low = (unsigned short)slot[0];
+    const unsigned int high = (unsigned short)slot[1];
+    const unsigned int swapped = low | (high << 16);
+    const unsigned int bits = ((swapped & 0xffffu) << 16) | (swapped >> 16);
+    return (Quad)(int)bits;
+}
+
+static const char kCityNameMagic[4] = {'L', 'C', 'N', '1'};
+
+static bool write_city_name(FILE *f, const std::string &name)
+{
+    unsigned int len = (unsigned int)name.size();
+    if (len > 200u) {
+        len = 200u;
+    }
+    if (fwrite(kCityNameMagic, 1, 4, f) != 4) {
+        return false;
+    }
+    const unsigned char le[2] = {
+        (unsigned char)(len & 0xffu),
+        (unsigned char)((len >> 8) & 0xffu),
+    };
+    if (fwrite(le, 1, 2, f) != 2) {
+        return false;
+    }
+    if (len > 0 && fwrite(name.data(), 1, len, f) != len) {
+        return false;
+    }
+    return true;
+}
+
+static bool read_city_name(FILE *f, std::string &name)
+{
+    char magic[4];
+    if (fread(magic, 1, 4, f) != 4) {
+        return false;
+    }
+    if (magic[0] != kCityNameMagic[0] || magic[1] != kCityNameMagic[1] ||
+        magic[2] != kCityNameMagic[2] || magic[3] != kCityNameMagic[3]) {
+        return false;
+    }
+    unsigned char le[2];
+    if (fread(le, 1, 2, f) != 2) {
+        return false;
+    }
+    const unsigned int len = (unsigned int)le[0] | ((unsigned int)le[1] << 8);
+    if (len > 200u) {
+        return false;
+    }
+    name.assign(len, '\0');
+    if (len > 0 && fread(&name[0], 1, len, f) != len) {
+        return false;
+    }
     return true;
 }
 
@@ -230,8 +301,13 @@ bool Micropolis::loadFileDir(const char *filename, const char *dir)
     size = ftell(f);
     fseek(f, 0L, SEEK_SET);
 
+    // 27120 is the classic payload. Newer saves append a city-name trailer.
+    // A short file is not a city; extra bytes that are not a name are ignored.
+    cityNameStored = false;
+    cityNameStoredText.clear();
+
     bool result =
-      (size == 27120) &&
+      (size >= 27120) &&
       load_short(resHist, HISTORY_LENGTH / sizeof(short), f) &&
       load_short(comHist, HISTORY_LENGTH / sizeof(short), f) &&
       load_short(indHist, HISTORY_LENGTH / sizeof(short), f) &&
@@ -240,6 +316,14 @@ bool Micropolis::loadFileDir(const char *filename, const char *dir)
       load_short(moneyHist, HISTORY_LENGTH / sizeof(short), f) &&
       load_short(miscHist, MISC_HISTORY_LENGTH / sizeof(short), f) &&
       load_short(((short *)&map[0][0]), WORLD_W * WORLD_H, f);
+
+    if (result && size > 27120) {
+        std::string stored;
+        if (read_city_name(f, stored)) {
+            cityNameStored = true;
+            cityNameStoredText = stored;
+        }
+    }
 
     fclose(f);
 
@@ -259,16 +343,13 @@ bool Micropolis::loadFile(const char *filename)
         return false;
     }
 
-    /* total funds is a long.....    miscHist is array of shorts */
-    /* total funds is being put in the 50th & 51th word of miscHist */
-    /* find the address, cast the ptr to a longPtr, take contents */
-
-    n = *(Quad *)(miscHist + 50);
-    HALF_SWAP_LONGS(&n, 1);
+    /* total funds is a 32-bit value in two shorts at miscHist[50]. */
+    n = get_mac_long(miscHist + 50);
     setFunds(n);
 
-    n = *(Quad *)(miscHist + 8);
-    HALF_SWAP_LONGS(&n, 1);
+    /* cityTime shares that width. An 8-byte Quad also covered crimeRamp
+       and pollutionRamp in miscHist[10] and miscHist[11]. */
+    n = get_mac_long(miscHist + 8);
     cityTime = n;
 
     setAutoBulldoze(miscHist[52] != 0);   // flag for autoBulldoze
@@ -282,27 +363,14 @@ bool Micropolis::loadFile(const char *filename)
 
     /* yayaya */
 
-    n = *(Quad *)(miscHist + 58);
-    HALF_SWAP_LONGS(&n, 1);
+    n = get_mac_long(miscHist + 58);
     policePercent = ((float)n) / ((float)65536);
 
-    n = *(Quad *)(miscHist + 60);
-    HALF_SWAP_LONGS(&n, 1);
+    n = get_mac_long(miscHist + 60);
     firePercent = (float)n / (float)65536.0;
 
-    n = *(Quad *)(miscHist + 62);
-    HALF_SWAP_LONGS(&n, 1);
+    n = get_mac_long(miscHist + 62);
     roadPercent = (float)n / (float)65536.0;
-
-    policePercent =
-        (float)(*(Quad*)(miscHist + 58)) /
-        (float)65536.0;   /* and 59 */
-    firePercent =
-        (float)(*(Quad*)(miscHist + 60)) /
-        (float)65536.0;   /* and 61 */
-    roadPercent =
-        (float)(*(Quad*)(miscHist + 62)) /
-        (float)65536.0;   /* and 63 */
 
     cityTime = max((Quad)0, cityTime);
 
@@ -318,6 +386,14 @@ bool Micropolis::loadFile(const char *filename)
 
     setSpeed(simSpeed);
     setPasses(1);
+
+    // initFundingLevel() forces 100% and simLoadInit() maxes the service
+    // effects. Keep the percents that were just read so the next tax year
+    // bills them and the effects match.
+    const float savedRoadPercent = roadPercent;
+    const float savedPolicePercent = policePercent;
+    const float savedFirePercent = firePercent;
+
     initFundingLevel();
 
     // Set the scenario id to 0.
@@ -326,6 +402,29 @@ bool Micropolis::loadFile(const char *filename)
     initSimLoad = 1;
     doInitialEval = false;
     doSimInit();
+
+    roadPercent = savedRoadPercent;
+    policePercent = savedPolicePercent;
+    firePercent = savedFirePercent;
+    if (roadPercent < 0.0f) {
+        roadPercent = 0.0f;
+    } else if (roadPercent > 1.0f) {
+        roadPercent = 1.0f;
+    }
+    if (policePercent < 0.0f) {
+        policePercent = 0.0f;
+    } else if (policePercent > 1.0f) {
+        policePercent = 1.0f;
+    }
+    if (firePercent < 0.0f) {
+        firePercent = 0.0f;
+    } else if (firePercent > 1.0f) {
+        firePercent = 1.0f;
+    }
+    roadEffect = (Quad)(roadPercent * (float)MAX_ROAD_EFFECT);
+    policeEffect = (Quad)(policePercent * (float)MAX_POLICE_STATION_EFFECT);
+    fireEffect = (Quad)(firePercent * (float)MAX_FIRE_STATION_EFFECT);
+
     invalidateMaps();
 
     return true;
@@ -339,7 +438,6 @@ bool Micropolis::loadFile(const char *filename)
  */
 bool Micropolis::saveFile(const char *filename)
 {
-    long n;
     FILE *f;
 
     if ((f = fopen(filename, "wb")) == NULL) {
@@ -351,13 +449,10 @@ bool Micropolis::saveFile(const char *filename)
     /* total funds is bien put in the 50th & 51th word of miscHist */
     /* find the address, cast the ptr to a longPtr, take contents */
 
-    n = totalFunds;
-    HALF_SWAP_LONGS(&n, 1);
-    (*(Quad *)(miscHist + 50)) = n;
+    put_mac_long(miscHist + 50, totalFunds);
 
-    n = cityTime;
-    HALF_SWAP_LONGS(&n, 1);
-    (*(Quad *)(miscHist + 8)) = n;
+    // Two shorts only. miscHist[10] and [11] are crimeRamp and pollutionRamp.
+    put_mac_long(miscHist + 8, cityTime);
 
     miscHist[52] = autoBulldoze;   // flag for autoBulldoze
     miscHist[53] = autoBudget;     // flag for autoBudget
@@ -368,17 +463,9 @@ bool Micropolis::saveFile(const char *filename)
 
     /* yayaya */
 
-    n = (int)(policePercent * 65536);
-    HALF_SWAP_LONGS(&n, 1);
-    (*(Quad *)(miscHist + 58)) = n;
-
-    n = (int)(firePercent * 65536);
-    HALF_SWAP_LONGS(&n, 1);
-    (*(Quad *)(miscHist + 60)) = n;
-
-    n = (int)(roadPercent * 65536);
-    HALF_SWAP_LONGS(&n, 1);
-    (*(Quad *)(miscHist + 62)) = n;
+    put_mac_long(miscHist + 58, (Quad)(int)(policePercent * 65536));
+    put_mac_long(miscHist + 60, (Quad)(int)(firePercent * 65536));
+    put_mac_long(miscHist + 62, (Quad)(int)(roadPercent * 65536));
 
     bool result =
         save_short(resHist, HISTORY_LENGTH / 2, f) &&
@@ -388,7 +475,8 @@ bool Micropolis::saveFile(const char *filename)
         save_short(pollutionHist, HISTORY_LENGTH / 2, f) &&
         save_short(moneyHist, HISTORY_LENGTH / 2, f) &&
         save_short(miscHist, MISC_HISTORY_LENGTH / 2, f) &&
-        save_short(((short *)&map[0][0]), WORLD_W * WORLD_H, f);
+        save_short(((short *)&map[0][0]), WORLD_W * WORLD_H, f) &&
+        write_city_name(f, cityName);
 
     fclose(f);
 
@@ -516,15 +604,22 @@ bool Micropolis::loadCity(const char *filename)
 
         cityFileName = filename;
 
-        unsigned int lastSlash = cityFileName.find_last_of('/');
-        unsigned int pos = (lastSlash == std::string::npos) ? 0 : lastSlash + 1;
+        const std::string::size_type lastSlash = cityFileName.find_last_of('/');
+        const std::string::size_type pos = (lastSlash == std::string::npos) ? 0 : lastSlash + 1;
 
-        unsigned int lastDot = cityFileName.find_last_of('.');
-        unsigned int last =
-            (lastDot == std::string::npos) ? cityFileName.length() : lastDot;
+        const std::string::size_type lastDot = cityFileName.find_last_of('.');
+        const std::string::size_type last =
+            (lastDot == std::string::npos || lastDot < pos) ? cityFileName.length() : lastDot;
 
-        std::string newCityName = cityFileName.substr(pos, last - pos);
-        setCityName(newCityName);
+        // Old saves have no name field. The filename stem is the fallback.
+        // Newer saves store the real name, spaces included, and must not
+        // be run through setCityName() (that turns non-alphanumerics into '_').
+        if (cityNameStored) {
+            setCleanCityName(cityNameStoredText);
+        } else {
+            std::string newCityName = cityFileName.substr(pos, last - pos);
+            setCleanCityName(newCityName);
+        }
 
         didLoadCity();
 
@@ -618,20 +713,8 @@ void Micropolis::saveCityAs(const char *filename)
 
     if (saveFile(cityFileName.c_str())) {
 
-        unsigned int lastDot = cityFileName.find_last_of('.');
-        unsigned int lastSlash = cityFileName.find_last_of('/');
-
-        unsigned int pos =
-            (lastSlash == std::string::npos) ? 0 : lastSlash + 1;
-        unsigned int last =
-            (lastDot == std::string::npos) ? cityFileName.length() : lastDot;
-        unsigned int len =
-            last - pos;
-        std::string newCityName =
-            cityFileName.substr(pos, len);
-
-        setCityName(newCityName);
-
+        // The file stem is not the city name. Rename City, and names with
+        // spaces, have to survive Save and Save As.
         didSaveCity();
 
     } else {
