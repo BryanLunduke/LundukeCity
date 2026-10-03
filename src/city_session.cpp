@@ -41,6 +41,34 @@ const char *kMonths[] = {
     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 };
 
+Quad live_population_count(const Micropolis &sim)
+{
+    return (static_cast<Quad>(sim.resPop) +
+            (static_cast<Quad>(sim.comPop) + static_cast<Quad>(sim.indPop)) * 8L) *
+           20L;
+}
+
+CityClass live_city_class(Quad population)
+{
+    CityClass city_class = CC_VILLAGE;
+    if (population > 2000) {
+        city_class = CC_TOWN;
+    }
+    if (population > 10000) {
+        city_class = CC_CITY;
+    }
+    if (population > 50000) {
+        city_class = CC_CAPITAL;
+    }
+    if (population > 100000) {
+        city_class = CC_METROPOLIS;
+    }
+    if (population > 500000) {
+        city_class = CC_MEGALOPOLIS;
+    }
+    return city_class;
+}
+
 const char *city_class_name(CityClass city_class)
 {
     switch (city_class) {
@@ -221,6 +249,35 @@ void CitySession::on_callback(const char *name, const char *params, va_list args
 
     if (which == "showBudgetAndWait") {
         budget_requested_ = true;
+        notify();
+        return;
+    }
+
+    if (which == "autoGoto") {
+        int x = 0;
+        int y = 0;
+        const char *p = params != nullptr ? params : "";
+        if (*p == 'd') {
+            x = take_int();
+            ++p;
+        }
+        if (*p == 'd') {
+            y = take_int();
+        }
+        if (Micropolis::testBounds(x, y)) {
+            goto_x_ = x;
+            goto_y_ = y;
+            goto_pending_ = true;
+            notify();
+        }
+        return;
+    }
+
+    if (which == "startEarthquake") {
+        quake_strength_ = (params != nullptr && params[0] == 'd') ? take_int() : 0;
+        if (quake_strength_ < 1) {
+            quake_strength_ = 1;
+        }
         notify();
         return;
     }
@@ -476,6 +533,16 @@ bool CitySession::disasters() const
     return engine_->sim.enableDisasters;
 }
 
+void CitySession::set_auto_goto(bool on)
+{
+    engine_->sim.setAutoGoto(on);
+}
+
+bool CitySession::auto_goto() const
+{
+    return engine_->sim.autoGoto;
+}
+
 void CitySession::set_tax(int percent)
 {
     if (percent < 0) {
@@ -561,6 +628,7 @@ CitySession::BudgetBook CitySession::budget() const
     BudgetBook book;
     book.taxes = static_cast<long>(sim.taxFund);
     book.funds = static_cast<long>(sim.totalFunds);
+    book.previous_funds = sim.budgetAnchorValid ? static_cast<long>(sim.budgetAnchorFunds) : book.funds;
     book.tax_percent = sim.cityTax;
     book.road_percent = percent_of(sim.roadPercent);
     book.police_percent = percent_of(sim.policePercent);
@@ -598,6 +666,29 @@ bool CitySession::take_budget_request()
     const bool requested = budget_requested_;
     budget_requested_ = false;
     return requested;
+}
+
+void CitySession::commit_pending_budget()
+{
+    engine_->sim.commitBudgetPayment();
+}
+
+bool CitySession::take_view_target(int &tile_x, int &tile_y)
+{
+    if (!goto_pending_) {
+        return false;
+    }
+    goto_pending_ = false;
+    tile_x = goto_x_;
+    tile_y = goto_y_;
+    return true;
+}
+
+int CitySession::take_earthquake()
+{
+    const int strength = quake_strength_;
+    quake_strength_ = 0;
+    return strength;
 }
 
 void CitySession::place_sprite(int type, int tile_x, int tile_y)
@@ -770,7 +861,9 @@ int CitySession::history_value(HistorySeries series, HistoryScale scale, int ind
 
 void CitySession::update_evaluation()
 {
-    engine_->sim.cityEvaluation();
+    // Preview fills problems and opinion for the window. Population,
+    // migration, and score stay on the tax-year pass.
+    engine_->sim.cityEvaluationPreview();
 }
 
 CitySession::Evaluation CitySession::evaluation() const
@@ -786,10 +879,12 @@ CitySession::Evaluation CitySession::evaluation() const
     if (report.yes_percent > 100) {
         report.yes_percent = 100;
     }
-    report.population = sim.cityPop < 0 ? 0 : static_cast<long>(sim.cityPop);
+    const Quad live_population = live_population_count(sim);
+    report.population = live_population < 0 ? 0 : static_cast<long>(live_population);
+    // cityPopDelta is the last tax year. A mid-year preview does not replace it.
     report.migration = static_cast<long>(sim.cityPopDelta);
     report.assessed_value = static_cast<long>(sim.cityAssessedValue);
-    report.category = city_class_name(sim.cityClass);
+    report.category = city_class_name(live_city_class(live_population < 0 ? 0 : live_population));
     report.year = static_cast<int>(sim.cityYear > 0 ? sim.cityYear : sim.startingYear);
     switch (sim.gameLevel) {
     case LEVEL_MEDIUM:
@@ -931,7 +1026,10 @@ std::vector<CitySession::SpriteDot> CitySession::sprites() const
         return dots;
     }
     int guard = 0;
-    for (SimSprite *sprite = engine_->sim.spriteList; sprite != nullptr && guard < 64;
+    // Deactivated sprites used to sit on this list forever. Keep a cycle
+    // guard, but do not stop after a handful of nodes or a later train,
+    // plane, ship, or monster is never drawn.
+    for (SimSprite *sprite = engine_->sim.spriteList; sprite != nullptr && guard < 4096;
          sprite = sprite->next, ++guard) {
         if (sprite->frame == 0 || sprite->type == SPRITE_NOTUSED) {
             continue;

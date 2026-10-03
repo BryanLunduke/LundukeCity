@@ -12,5 +12,7 @@ std::string message_for_number(int number);
 
 // One-line query readout. tile_category is the 1-based index from
 // doShowZoneStatus (29 means clear land; the engine's dirt path reports that).
+// The five scores are stri.202 category ids plus one (population 1–4,
+// land value 5–8, crime 9–12, pollution 13–16, growth 17–20).
 std::string zone_status_text(int tile_category, int population, int land_value,
                              int crime, int pollution, int growth);

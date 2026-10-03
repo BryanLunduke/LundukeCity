@@ -1564,6 +1564,28 @@ public:
 
     void doBudgetNow(bool fromMenu);
 
+    /**
+     * Apply a manual budget that was waiting on the budget window.
+     * Does nothing when no payment is pending, so closing the window
+     * twice does not charge twice.
+     */
+    void commitBudgetPayment();
+
+    /**
+     * True while a tax year is waiting for the budget window to close
+     * before road, police, and fire are paid.
+     */
+    bool budgetAwaitingAccept;
+
+    /**
+     * totalFunds at the start of the current tax budget, before that
+     * year's cash flow was applied. Valid when budgetAnchorValid is set.
+     */
+    Quad budgetAnchorFunds;
+
+    /** budgetAnchorFunds holds this year's prior balance. */
+    bool budgetAnchorValid;
+
     void updateBudget();
 
     void showBudgetWindowAndStartWaiting();
@@ -1712,6 +1734,12 @@ public:
 
 
     void cityEvaluation();
+
+    /**
+     * Run cityEvaluation() for the Evaluation window without committing
+     * population, migration, or score. Those stay with the tax-year pass.
+     */
+    void cityEvaluationPreview();
 
     void evalInit();
 
@@ -2004,6 +2032,15 @@ public:
      * @todo Write-only variable, should it be removed?
      */
     std::string cityName;     ///< Name of the city
+
+    /**
+     * True when the city file that was just read carried a name trailer.
+     * Old 27120-byte saves leave this false; the caller keeps the filename stem.
+     */
+    bool cityNameStored;
+
+    /** Name read from the trailer. Meaningful when cityNameStored is true. */
+    std::string cityNameStoredText;
 
 private:
 

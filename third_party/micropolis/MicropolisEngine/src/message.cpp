@@ -377,8 +377,33 @@ void Micropolis::doScenarioScore(Scenario type)
  * @param picture    Flag that is true if a picture should be shown.
  * @param important  Flag that is true if the message is important.
  */
+static bool message_moves_view(short mesgNum)
+{
+    switch (mesgNum) {
+        case MESSAGE_FIRE_REPORTED:
+        case MESSAGE_MONSTER_SIGHTED:
+        case MESSAGE_TORNADO_SIGHTED:
+        case MESSAGE_EARTHQUAKE:
+        case MESSAGE_PLANE_CRASHED:
+        case MESSAGE_SHIP_CRASHED:
+        case MESSAGE_TRAIN_CRASHED:
+        case MESSAGE_HELICOPTER_CRASHED:
+        case MESSAGE_FIREBOMBING:
+        case MESSAGE_EXPLOSION_REPORTED:
+            return true;
+        default:
+            return false;
+    }
+}
+
 void Micropolis::sendMessage(short mesgNum, short x, short y, bool picture, bool important)
 {
+    // Pan before the message callback so a front end that refreshes
+    // from the message already has the destination.
+    if (autoGoto && message_moves_view(mesgNum) && testBounds(x, y)) {
+        doAutoGoto(x, y, NULL);
+    }
+
     callback("update", "sdddbb", "message",
         (int)mesgNum,
         (int)x,

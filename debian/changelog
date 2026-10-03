@@ -1,3 +1,27 @@
+lunduke-city (0.8-2) unstable; urgency=medium
+
+  * Query describes population, land value, crime, pollution, and growth
+    on each field's own scale.
+  * Loading a city keeps the saved road, police, and fire funding, and
+    the service effects match those percents.
+  * The city name, including spaces, is stored in the save and survives
+    Save, Save As, Load, and Rename City. Older saves still load.
+  * Crime and pollution graphs and the smoothed census ramps survive
+    save and load. City time still round-trips.
+  * A failed save no longer leaves the live city byte-swapped.
+  * Budget "Current funds" matches cash on hand. "Previous funds" is
+    the balance before this year's budget.
+  * With auto budget off, the budget window can change this year's
+    road, police, and fire rates before they are paid.
+  * Fires, crashes, the monster, tornadoes, and earthquakes move the
+    view to the event when auto-goto is on. Earthquakes shake the map.
+  * Zoom keeps the neighborhood in the center of the view.
+  * Opening Evaluation mid-year no longer consumes last year's migration
+    or the yearly score change.
+  * New City and scenarios release deactivated sprites.
+
+ -- LCOS <lcos@lunduke.com>  Sat, 03 Oct 2026 15:40:00 +0000
+
 lunduke-city (0.8-1) unstable; urgency=medium
 
   * LCOS 0.8 track identity bump (0.7-4 → 0.8 / Debian 0.8-1). Features

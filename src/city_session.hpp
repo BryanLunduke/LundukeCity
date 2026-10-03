@@ -33,6 +33,7 @@ public:
         long taxes = 0;
         long cash_flow = 0;
         long funds = 0;
+        long previous_funds = 0;
         long road_need = 0;
         long police_need = 0;
         long fire_need = 0;
@@ -138,6 +139,8 @@ public:
     bool auto_bulldoze() const;
     void set_disasters(bool on);
     bool disasters() const;
+    void set_auto_goto(bool on);
+    bool auto_goto() const;
     void set_tax(int percent);
     int tax() const;
     void set_road_funding(int percent);
@@ -149,6 +152,13 @@ public:
     bool sound_enabled() const;
     std::vector<std::string> take_sounds();
     bool take_budget_request();
+    // Charge a tax year that was waiting on the budget window. A no-op
+    // when nothing is waiting, including a second close.
+    void commit_pending_budget();
+    // Tile the engine asked the view to center on (auto-goto).
+    bool take_view_target(int &tile_x, int &tile_y);
+    // Strength of a quake the engine just started, 0 if none is waiting.
+    int take_earthquake();
 
     // Drop a mobile sprite on a tile. Used so the map can show the
     // engine's sprite list without waiting for the simulator to spawn one.
@@ -240,6 +250,10 @@ private:
     std::string save_path_;
     std::vector<std::string> sounds_;
     bool budget_requested_ = false;
+    bool goto_pending_ = false;
+    int goto_x_ = 0;
+    int goto_y_ = 0;
+    int quake_strength_ = 0;
     bool sound_enabled_ = true;
     bool ready_ = false;
     int speed_ = 2;

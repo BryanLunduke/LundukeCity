@@ -55,6 +55,11 @@ BudgetWindow::BudgetWindow()
         hide();
         return true;
     });
+    signal_hide().connect([this] {
+        if (session_ != nullptr) {
+            session_->commit_pending_budget();
+        }
+    });
 
     auto tune = [](Gtk::Scale &scale, double upper) {
         scale.set_range(0, upper);
@@ -159,8 +164,8 @@ void BudgetWindow::sync()
     taxes_.set_text("Taxes collected: " + money(book.taxes));
     cash_flow_.set_text(std::string("Cash flow: ") + (book.cash_flow > 0 ? "+" : "") +
                         money(book.cash_flow));
-    funds_.set_text("Previous funds: " + money(book.funds));
-    projected_.set_text("Current funds: " + money(book.funds + book.cash_flow));
+    funds_.set_text("Previous funds: " + money(book.previous_funds));
+    projected_.set_text("Current funds: " + money(book.funds));
 
     updating_ = true;
     set_funding_quietly(tax_, book.tax_percent);

@@ -104,8 +104,33 @@ void Micropolis::doBudgetFromMenu()
  * @todo Simplify this code. Instead of this nested mess, make a sequence of
  *       assigning funds to road, fire, and police.
  */
+void Micropolis::commitBudgetPayment()
+{
+    if (!budgetAwaitingAccept) {
+        return;
+    }
+    budgetAwaitingAccept = false;
+
+    fireSpend = (int)(fireFund * firePercent);
+    policeSpend = (int)(policeFund * policePercent);
+    roadSpend = (int)(roadFund * roadPercent);
+
+    const Quad total = fireSpend + policeSpend + roadSpend;
+    const Quad moreDough = (Quad)(taxFund - total);
+    spend((int)(-moreDough));
+    updateFundEffects();
+}
+
+
 void Micropolis::doBudgetNow(bool fromMenu)
 {
+    if (!fromMenu) {
+        // Cash on hand before this year's budget is applied. The window
+        // shows this as Previous funds. Current funds is totalFunds.
+        budgetAnchorFunds = totalFunds;
+        budgetAnchorValid = true;
+    }
+
     Quad fireInt   = (int)(fireFund   * firePercent);
     Quad policeInt = (int)(policeFund * policePercent);
     Quad roadInt   = (int)(roadFund   * roadPercent);
@@ -264,19 +289,14 @@ noMoney:
         // modal budget dialog is dismissed.
         showBudgetWindowAndStartWaiting();
 
-        // FIXME: Only do this AFTER the budget window is accepted.
-
         if (!fromMenu) {
-
+            // Sliders have to be able to change this year's rates before
+            // the money moves. commitBudgetPayment() runs when the window
+            // closes, or at the next tax collection if it is still open.
             fireSpend = fireValue;
             policeSpend = policeValue;
             roadSpend = roadValue;
-
-            total = fireSpend + policeSpend + roadSpend;
-
-            Quad moreDough = (Quad)(taxFund - total);
-            spend(-moreDough);
-
+            budgetAwaitingAccept = true;
         }
 
         mustDrawBudget = 1;

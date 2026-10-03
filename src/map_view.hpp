@@ -25,6 +25,8 @@ public:
     void clear_hover();
 
     void set_tile_size(int pixels);
+    // Pixel offset applied while an earthquake is shaking the map.
+    void set_shake(int dx, int dy);
     int tile_size() const { return tile_size_; }
     int pixel_width() const;
     int pixel_height() const;
@@ -50,6 +52,8 @@ private:
     CitySession *session_ = nullptr;
     int engine_tool_ = 6;
     int tile_size_ = 16;
+    int shake_x_ = 0;
+    int shake_y_ = 0;
     bool dragging_ = false;
     int last_x_ = -1;
     int last_y_ = -1;

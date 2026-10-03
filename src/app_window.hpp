@@ -114,4 +114,7 @@ private:
     std::unique_ptr<Gtk::Dialog> query_dialog_;
     Gtk::Label *query_body_ = nullptr;
     int shown_query_serial_ = 0;
+    int quake_strength_ = 0;
+    std::chrono::steady_clock::time_point quake_started_{};
+    std::chrono::steady_clock::time_point quake_until_{};
 };

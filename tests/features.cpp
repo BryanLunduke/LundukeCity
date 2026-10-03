@@ -190,8 +190,8 @@ int main()
         return fail(22, "Dullsville should start with $5,000");
     }
 
-    if (std::string(kPackageVersion) != "0.7-3" || std::string(kReleaseTrack) != "0.7") {
-        return fail(23, "package version should be the 0.7-3 identity");
+    if (std::string(kPackageVersion) != "0.8-2" || std::string(kReleaseTrack) != "0.8") {
+        return fail(23, "package version should be the 0.8-2 identity");
     }
 
     auto count_kind = [](CitySession &city, bool woods) {

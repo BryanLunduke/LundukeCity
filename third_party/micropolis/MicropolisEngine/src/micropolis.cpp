@@ -328,6 +328,10 @@ void Micropolis::init()
     // int mustDrawBudget;
     mustDrawBudget = 0;
 
+    budgetAwaitingAccept = false;
+    budgetAnchorFunds = 0;
+    budgetAnchorValid = false;
+
 
     ////////////////////////////////////////////////////////////////////////
     // connect.cpp
@@ -442,6 +446,9 @@ void Micropolis::init()
 
     // std::string cityName;
     cityName = "";
+
+    cityNameStored = false;
+    cityNameStoredText = "";
 
     // bool tilesAnimated;
     tilesAnimated = false;
