@@ -119,9 +119,8 @@ void GraphsWindow::set_session(CitySession *session)
 
 void GraphsWindow::present_graphs()
 {
-    if (session_ != nullptr) {
-        session_->update_evaluation();
-    }
+    // The chart reads history samples. It does not need a vote, and a vote
+    // would advance the simulator's random stream.
     show_all();
     present();
     sync();

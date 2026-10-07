@@ -102,19 +102,56 @@ void Micropolis::cityEvaluationPreview()
     // The budget-year pass and the Evaluation window share cityPop,
     // cityPopDelta, and cityScore. A mid-year open must not consume
     // "net migration (last year)" or the next January's score change.
+    // Votes use the simulator RNG; put it back so disasters and growth
+    // do not move just because the window is open. Every field the pass
+    // writes is restored. The window reads the preview copy.
+    const UQuad savedRandom = nextRandom;
     const Quad savedPop = cityPop;
     const Quad savedDelta = cityPopDelta;
     const short savedScore = cityScore;
     const short savedScoreDelta = cityScoreDelta;
     const CityClass savedClass = cityClass;
+    const short savedYes = cityYes;
+    const Quad savedAssessed = cityAssessedValue;
+    const short savedTraffic = trafficAverage;
+    const bool savedEvalChanged = evalChanged;
+    short savedVotes[PROBNUM];
+    short savedOrder[CVP_PROBLEM_COMPLAINTS];
+    for (int i = 0; i < PROBNUM; ++i) {
+        savedVotes[i] = problemVotes[i];
+    }
+    for (int i = 0; i < CVP_PROBLEM_COMPLAINTS; ++i) {
+        savedOrder[i] = problemOrder[i];
+    }
 
     cityEvaluation();
 
+    evalPreviewValid = true;
+    evalPreviewYes = cityYes;
+    evalPreviewAssessed = cityAssessedValue;
+    for (int i = 0; i < PROBNUM; ++i) {
+        evalPreviewVotes[i] = problemVotes[i];
+    }
+    for (int i = 0; i < CVP_PROBLEM_COMPLAINTS; ++i) {
+        evalPreviewOrder[i] = problemOrder[i];
+    }
+
+    nextRandom = savedRandom;
     cityPop = savedPop;
     cityPopDelta = savedDelta;
     cityScore = savedScore;
     cityScoreDelta = savedScoreDelta;
     cityClass = savedClass;
+    cityYes = savedYes;
+    cityAssessedValue = savedAssessed;
+    trafficAverage = savedTraffic;
+    evalChanged = savedEvalChanged;
+    for (int i = 0; i < PROBNUM; ++i) {
+        problemVotes[i] = savedVotes[i];
+    }
+    for (int i = 0; i < CVP_PROBLEM_COMPLAINTS; ++i) {
+        problemOrder[i] = savedOrder[i];
+    }
 }
 
 

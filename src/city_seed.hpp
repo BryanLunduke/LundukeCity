@@ -68,3 +68,21 @@ inline bool parse_city_seed(const std::string &raw, CitySeedParse &out)
     out.value = static_cast<int>(value);
     return true;
 }
+
+// Apply a seed field. A parse failure leaves seed and seed_was_set alone
+// so a typo is not treated as "chosen from the clock".
+inline bool take_city_seed(const std::string &raw, int &seed, bool &seed_was_set)
+{
+    CitySeedParse parsed;
+    if (!parse_city_seed(raw, parsed)) {
+        return false;
+    }
+    if (parsed.from_clock) {
+        seed = 0;
+        seed_was_set = false;
+    } else {
+        seed = parsed.value;
+        seed_was_set = true;
+    }
+    return true;
+}

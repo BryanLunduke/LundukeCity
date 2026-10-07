@@ -104,6 +104,43 @@ void Micropolis::doBudgetFromMenu()
  * @todo Simplify this code. Instead of this nested mess, make a sequence of
  *       assigning funds to road, fire, and police.
  */
+namespace {
+
+Quad take_budget_share(float &percent, Quad fund, Quad &available)
+{
+    if (fund <= 0 || percent <= 0.0f || available <= 0) {
+        if (fund > 0 && available <= 0) {
+            percent = 0.0f;
+        }
+        return 0;
+    }
+    if (percent > 1.0f) {
+        percent = 1.0f;
+    }
+    Quad want = (Quad)((double)fund * (double)percent);
+    if (want < 0) {
+        want = 0;
+    }
+    if (want > available) {
+        percent = (float)((double)available / (double)fund);
+        if (percent < 0.0f) {
+            percent = 0.0f;
+        }
+        if (percent > 1.0f) {
+            percent = 1.0f;
+        }
+        want = (Quad)((double)fund * (double)percent);
+        if (want > available) {
+            want = available;
+        }
+    }
+    available -= want;
+    return want;
+}
+
+} // namespace
+
+
 void Micropolis::commitBudgetPayment()
 {
     if (!budgetAwaitingAccept) {
@@ -111,12 +148,34 @@ void Micropolis::commitBudgetPayment()
     }
     budgetAwaitingAccept = false;
 
-    fireSpend = (int)(fireFund * firePercent);
-    policeSpend = (int)(policeFund * policePercent);
-    roadSpend = (int)(roadFund * roadPercent);
+    // Sliders can rise after doBudgetNow scaled them. Charge only what
+    // taxFund + cash on hand can cover, roads first, then fire, then police.
+    Quad available = (Quad)taxFund + (Quad)totalFunds;
+    if (available < 0) {
+        available = 0;
+    }
+    const Quad roadTaken = take_budget_share(roadPercent, roadFund, available);
+    const Quad fireTaken = take_budget_share(firePercent, fireFund, available);
+    const Quad policeTaken = take_budget_share(policePercent, policeFund, available);
 
-    const Quad total = fireSpend + policeSpend + roadSpend;
-    const Quad moreDough = (Quad)(taxFund - total);
+    roadSpend = roadTaken;
+    fireSpend = fireTaken;
+    policeSpend = policeTaken;
+    roadValue = roadTaken;
+    fireValue = fireTaken;
+    policeValue = policeTaken;
+
+    const Quad spent = roadTaken + fireTaken + policeTaken;
+    Quad moreDough = (Quad)taxFund - spent;
+    if ((Quad)totalFunds + moreDough < 0) {
+        moreDough = -(Quad)totalFunds;
+    }
+    if (moreDough > 2000000000L) {
+        moreDough = 2000000000L;
+    }
+    if (moreDough < -2000000000L) {
+        moreDough = -2000000000L;
+    }
     spend((int)(-moreDough));
     updateFundEffects();
 }
@@ -287,17 +346,19 @@ noMoney:
         // and is not supposed to wait until after the budget dialog is dismissed.
         // Otherwise don't do it after this and arrange for it to happen when the
         // modal budget dialog is dismissed.
-        showBudgetWindowAndStartWaiting();
-
         if (!fromMenu) {
             // Sliders have to be able to change this year's rates before
             // the money moves. commitBudgetPayment() runs when the window
             // closes, or at the next tax collection if it is still open.
+            // The flag is set before the callback so the UI can pause the
+            // city on this same stack, before another tick moves cityTime.
             fireSpend = fireValue;
             policeSpend = policeValue;
             roadSpend = roadValue;
             budgetAwaitingAccept = true;
         }
+
+        showBudgetWindowAndStartWaiting();
 
         mustDrawBudget = 1;
         doUpdateHeads();

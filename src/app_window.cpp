@@ -7,6 +7,7 @@
 #include "about_dialog.hpp"
 #include "city_session.hpp"
 #include "new_city_dialog.hpp"
+#include "save_path.hpp"
 #include "tools.hpp"
 #include "zoom_keys.hpp"
 
@@ -27,6 +28,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 
 static_assert(static_cast<unsigned>(GDK_KEY_equal) == 0x03d, "equal keysym");
@@ -56,6 +58,7 @@ AppWindow::AppWindow()
         overlays_[i]->set_session(session_.get());
     }
     budget_window_.set_session(session_.get());
+    budget_window_.signal_hide().connect(sigc::mem_fun(*this, &AppWindow::on_budget_hidden));
     graphs_window_.set_session(session_.get());
     evaluation_window_.set_session(session_.get());
     build_ui();
@@ -167,7 +170,7 @@ void AppWindow::build_menus()
     add_item(system_menu, "Play _Scenario…", 0, sigc::mem_fun(*this, &AppWindow::on_play_scenario));
     add_item(system_menu, "_Rename City…", 0, sigc::mem_fun(*this, &AppWindow::on_rename_city));
     system_menu->append(*Gtk::manage(new Gtk::SeparatorMenuItem()));
-    add_item(system_menu, "_Quit", GDK_KEY_q, [this] { hide(); });
+    add_item(system_menu, "_Quit", GDK_KEY_q, sigc::mem_fun(*this, &AppWindow::on_quit));
     menu_bar_.append(*system);
 
     auto *options_menu = Gtk::manage(new Gtk::Menu());
@@ -266,6 +269,25 @@ void AppWindow::bind_session()
         refresh();
     });
     map_.signal_zoom.connect(sigc::mem_fun(*this, &AppWindow::zoom_by));
+    map_.signal_pause_toggle.connect([this] {
+        if (speed_ == 0) {
+            set_speed(paused_from_speed_ > 0 ? paused_from_speed_ : 2);
+        } else {
+            paused_from_speed_ = speed_;
+            set_speed(0);
+        }
+        sync_option_checks();
+    });
+    map_.signal_pan.connect([this](int dx, int dy) {
+        auto ha = scroll_.get_hadjustment();
+        auto va = scroll_.get_vadjustment();
+        const double step_x = std::max(32.0, ha->get_page_size() * 0.2);
+        const double step_y = std::max(32.0, va->get_page_size() * 0.2);
+        const double x = ha->get_value() + step_x * dx;
+        const double y = va->get_value() + step_y * dy;
+        ha->set_value(std::max(ha->get_lower(), std::min(ha->get_upper() - ha->get_page_size(), x)));
+        va->set_value(std::max(va->get_lower(), std::min(va->get_upper() - va->get_page_size(), y)));
+    });
     map_.signal_tool_drag.connect([this](int x0, int y0, int x1, int y1) {
         session_->drag_tool(tool_by_index(tools_.selected())->engine_id, x0, y0, x1, y1);
         refresh();
@@ -401,6 +423,14 @@ void AppWindow::refresh()
         sound_.play(name);
     }
     if (session_->take_budget_request()) {
+        // Pause before the idle present, so the next tick cannot move
+        // cityTime off the tax year that is still unpaid.
+        if (session_->budget_pending() && !tax_budget_modal_) {
+            budget_window_.set_transient_for(*this);
+            budget_window_.set_modal(true);
+            begin_modal();
+            tax_budget_modal_ = true;
+        }
         Glib::signal_idle().connect_once(sigc::mem_fun(*this, &AppWindow::on_budget));
     }
 }
@@ -584,8 +614,60 @@ bool AppWindow::on_key_press_event(GdkEventKey *event)
     return Gtk::ApplicationWindow::on_key_press_event(event);
 }
 
+bool AppWindow::confirm_unsaved()
+{
+    if (!session_ || !session_->needs_save_prompt()) {
+        return true;
+    }
+    Gtk::MessageDialog dialog(*this, "Save changes to this city before continuing?", false,
+                              Gtk::MESSAGE_QUESTION, Gtk::BUTTONS_NONE, true);
+    dialog.add_button("_Cancel", Gtk::RESPONSE_CANCEL);
+    dialog.add_button("_Discard", Gtk::RESPONSE_REJECT);
+    dialog.add_button("_Save", Gtk::RESPONSE_ACCEPT);
+    dialog.set_default_response(Gtk::RESPONSE_ACCEPT);
+    const int response = dialog.run();
+    if (response == Gtk::RESPONSE_ACCEPT) {
+        on_save_city();
+        return session_ && !session_->needs_save_prompt();
+    }
+    if (response == Gtk::RESPONSE_REJECT) {
+        session_->discard_pending_budget();
+        return true;
+    }
+    return false;
+}
+
+void AppWindow::close_budget_window()
+{
+    if (budget_window_.get_visible()) {
+        budget_window_.hide();
+    }
+}
+
+void AppWindow::on_quit()
+{
+    if (!confirm_unsaved()) {
+        return;
+    }
+    close_budget_window();
+    hide();
+}
+
+bool AppWindow::on_delete_event(GdkEventAny *event)
+{
+    if (!confirm_unsaved()) {
+        return true;
+    }
+    close_budget_window();
+    return Gtk::ApplicationWindow::on_delete_event(event);
+}
+
 void AppWindow::on_new_city()
 {
+    if (!confirm_unsaved()) {
+        return;
+    }
+    close_budget_window();
     ModalPause pause(*this);
     CitySession::NewCitySpec spec;
     const char *shot = std::getenv("LUNDUKE_CITY_SHOT_NEWCITY");
@@ -641,6 +723,10 @@ void AppWindow::on_rename_city()
 
 void AppWindow::on_load_city()
 {
+    if (!confirm_unsaved()) {
+        return;
+    }
+    close_budget_window();
     ModalPause pause(*this);
     Gtk::FileChooserDialog dialog(*this, "Load City", Gtk::FILE_CHOOSER_ACTION_OPEN);
     dialog.add_button("_Cancel", Gtk::RESPONSE_CANCEL);
@@ -691,12 +777,31 @@ void AppWindow::on_save_city_as()
     filter->add_pattern("*.cty");
     dialog.add_filter(filter);
     dialog.set_current_name("city.cty");
-    if (dialog.run() != Gtk::RESPONSE_ACCEPT) {
-        return;
+    std::string path;
+    while (dialog.run() == Gtk::RESPONSE_ACCEPT) {
+        const std::string chosen = dialog.get_filename();
+        const std::string final_path = with_cty_suffix(chosen);
+        if (final_path == chosen) {
+            path = final_path;
+            break;
+        }
+        const auto slash = final_path.find_last_of('/');
+        if (slash != std::string::npos) {
+            dialog.set_current_folder(final_path.substr(0, slash));
+            dialog.set_current_name(final_path.substr(slash + 1));
+        } else {
+            dialog.set_current_name(final_path);
+        }
+        std::error_code exists_ec;
+        if (!std::filesystem::exists(final_path, exists_ec)) {
+            path = final_path;
+            break;
+        }
+        // The chooser confirmed a different path. Ask again about the file
+        // that will actually be replaced.
     }
-    std::string path = dialog.get_filename();
-    if (path.size() < 4 || path.substr(path.size() - 4) != ".cty") {
-        path += ".cty";
+    if (path.empty()) {
+        return;
     }
     if (!session_->save_city_as(path)) {
         Gtk::MessageDialog error(*this, "Could not save the city.", false, Gtk::MESSAGE_ERROR,
@@ -708,6 +813,10 @@ void AppWindow::on_save_city_as()
 
 void AppWindow::on_play_scenario()
 {
+    if (!confirm_unsaved()) {
+        return;
+    }
+    close_budget_window();
     ModalPause pause(*this);
     class Columns : public Gtk::TreeModel::ColumnRecord {
     public:
@@ -804,11 +913,28 @@ void AppWindow::on_play_scenario()
     center_on_fraction(0.5, 0.5);
 }
 
+void AppWindow::on_budget_hidden()
+{
+    if (!tax_budget_modal_) {
+        return;
+    }
+    tax_budget_modal_ = false;
+    budget_window_.set_modal(false);
+    end_modal();
+}
+
 void AppWindow::on_budget()
 {
-    if (modal_depth_ > 0) {
+    if (modal_depth_ > 0 && !tax_budget_modal_) {
         session_->keep_budget_request();
         return;
+    }
+    const bool tax = session_->budget_pending();
+    if (tax && !tax_budget_modal_) {
+        budget_window_.set_transient_for(*this);
+        budget_window_.set_modal(true);
+        begin_modal();
+        tax_budget_modal_ = true;
     }
     budget_window_.present_book();
 }

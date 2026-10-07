@@ -27,6 +27,11 @@ private:
 
     CitySession *session_ = nullptr;
     bool updating_ = false;
+    bool accept_on_hide_ = true;
+    int open_tax_ = 7;
+    int open_road_ = 100;
+    int open_police_ = 100;
+    int open_fire_ = 100;
 
     Gtk::Box root_{Gtk::ORIENTATION_VERTICAL, 8};
     Gtk::Label taxes_;

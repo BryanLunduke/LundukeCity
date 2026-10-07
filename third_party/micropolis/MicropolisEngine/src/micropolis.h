@@ -1094,14 +1094,14 @@ public:
      * Includes residential pop / 8 plus industrial pop plus commercial
      * pop.
      */
-    short totalPop;
+    Quad totalPop;
 
     /**
      * Last total population.
      *
      * Not used?
      */
-    short totalPopLast;
+    Quad totalPopLast;
 
     short resZonePop; ///< Number of residential zones.
     short comZonePop; ///< Number of commercial zones.
@@ -1741,6 +1741,8 @@ public:
      */
     void cityEvaluationPreview();
 
+    void collectTax();
+
     void evalInit();
 
     void doScoreCard();
@@ -1794,7 +1796,7 @@ public:
 
     bool saveFile(const char *filename);
 
-    void loadScenario(Scenario s);
+    bool loadScenario(Scenario s);
 
     void didLoadScenario();
 
@@ -1812,7 +1814,7 @@ public:
 
     void didntSaveCity(const char *msg);
 
-    void saveCityAs(const char *filename);
+    bool saveCityAs(const char *filename);
 
 
     ////////////////////////////////////////////////////////////////////////
@@ -1882,9 +1884,9 @@ public:
 
     void generateSomeCity(int seed);
 
-private:
-
     void generateMap(int seed);
+
+private:
 
     void makeNakedIsland();
 
@@ -2236,6 +2238,13 @@ private:
 
 public:
 
+    /** Simulator RNG state. A preview pass has to put this back. */
+    UQuad randomState() const { return nextRandom; }
+
+    void primeRandom(int seed) { seedRandom(seed); }
+
+    short rollRandom(short range) { return getRandom(range); }
+
 
     /** Name of the Micropolis top level home directory. */
     std::string homeDir;
@@ -2319,7 +2328,7 @@ public:
     bool comCap; ///< Block commercial growth
     bool indCap; ///< Block industrial growth
 
-    short cashFlow;
+    Quad cashFlow;
 
     float externalMarket;
 
@@ -2341,6 +2350,34 @@ public:
     short phaseCycle;
 
     short speedCycle;
+
+    /**
+     * Last census that finished a full map scan (end of phase 8, and after
+     * doSimInit). The UI reads this while phase 0 has cleared the live counts.
+     */
+    bool censusSnapshotValid;
+    /** Live resPop/comPop/indPop are a finished scan, not a partial one. */
+    bool liveCensusComplete;
+    short snapResPop;
+    short snapComPop;
+    short snapIndPop;
+    short snapRoadTotal;
+    short snapRailTotal;
+    short snapPolicePop;
+    short snapFirePop;
+    short snapHospitalPop;
+    short snapStadiumPop;
+    short snapSeaportPop;
+    short snapAirportPop;
+    short snapCoalPop;
+    short snapNuclearPop;
+
+    /** Opinion and problems from cityEvaluationPreview, without keeping its writes. */
+    bool evalPreviewValid;
+    short evalPreviewYes;
+    Quad evalPreviewAssessed;
+    short evalPreviewVotes[PROBNUM];
+    short evalPreviewOrder[CVP_PROBLEM_COMPLAINTS];
 
     bool doInitialEval; ///< Need to perform initial city evaluation.
 
@@ -2372,7 +2409,7 @@ private:
         return (RUBBLE + (getRandom16() & 3)) | BULLBIT;
     };
 
-    void simFrame();
+    bool simFrame();
 
     void simulate();
 
@@ -2394,11 +2431,11 @@ private:
 
     void clearCensus();
 
+    void captureCensusSnapshot();
+
     void take10Census();
 
     void take120Census();
-
-    void collectTax();
 
     void mapScan(int x1, int x2);
 
@@ -2933,7 +2970,7 @@ public:
 
     void setCityName(const std::string &name);
 
-    void setCleanCityName(const std::string &name);
+    bool setCleanCityName(const std::string &name);
 
     void setYear(int year);
 

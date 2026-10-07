@@ -162,6 +162,22 @@ public:
     // Charge a tax year that was waiting on the budget window. A no-op
     // when nothing is waiting, including a second close.
     void commit_pending_budget();
+    // True while a tax year is waiting for the budget window.
+    bool budget_pending() const;
+    // Drop a tax year without charging it. Used when the city is replaced.
+    void discard_pending_budget();
+    // Commit a waiting tax year, or apply funding effects when the book
+    // was opened from the menu. Road effects stay put until this runs.
+    void finish_budget_edit();
+    // Live census is a finished scan (phase 9 or later, or just generated).
+    bool census_ready() const;
+    // Refresh the evaluation preview when the displayed month changes and
+    // the census is complete. Returns false when the pass was skipped.
+    bool note_evaluation_month(int month_index);
+    // cityAssessedValue as stored on the engine, not the preview copy.
+    long stored_assessed_value() const;
+    // Unsaved tools, budget, disasters, rename, or a tax year still open.
+    bool needs_save_prompt() const;
     // Tile the engine asked the view to center on (auto-goto).
     bool take_view_target(int &tile_x, int &tile_y);
     // Strength of a quake the engine just started, 0 if none is waiting.
@@ -265,4 +281,13 @@ private:
     bool ready_ = false;
     bool simulation_paused_ = false;
     int speed_ = 2;
+    bool dirty_ = false;
+    bool in_callback_ = false;
+    bool eval_month_pending_ = false;
+    int eval_month_ = -1;
+
+    friend int hostile_review_session_probe(CitySession &session, int op);
 };
+
+// Test hook for the census month and a budget left open across New City.
+int hostile_review_session_probe(CitySession &session, int op);

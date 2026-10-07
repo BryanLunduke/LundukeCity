@@ -45,6 +45,9 @@ public:
     sigc::signal<void, int, int, int, int> signal_tool_drag;
     // Ctrl+= / Ctrl+- while the map itself has keyboard focus.
     sigc::signal<void, int> signal_zoom;
+    // Space toggles pause. Arrows pan. Both only while the map has focus.
+    sigc::signal<void> signal_pause_toggle;
+    sigc::signal<void, int, int> signal_pan;
 
 protected:
     void on_realize() override;
@@ -75,7 +78,7 @@ private:
 
     CitySession *session_ = nullptr;
     int engine_tool_ = 6;
-    int tile_size_ = 16;
+    int tile_size_ = 12;
     int shake_x_ = 0;
     int shake_y_ = 0;
     bool dragging_ = false;

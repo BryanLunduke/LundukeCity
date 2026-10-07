@@ -58,6 +58,10 @@ private:
     void on_play_scenario();
     void on_rename_city();
     void on_budget();
+    void on_budget_hidden();
+    void on_quit();
+    bool confirm_unsaved();
+    void close_budget_window();
     void on_graphs();
     void on_evaluation();
     void on_overlay(CitySession::MapLayer layer);
@@ -71,6 +75,7 @@ private:
 
     bool on_tick();
     bool on_key_press_event(GdkEventKey *event) override;
+    bool on_delete_event(GdkEventAny *event) override;
 
     std::unique_ptr<CitySession> session_;
 
@@ -120,6 +125,8 @@ private:
     int shown_query_serial_ = 0;
     bool query_pinned_ = false;
     int modal_depth_ = 0;
+    bool tax_budget_modal_ = false;
+    int paused_from_speed_ = 2;
 
     class ModalPause {
     public:

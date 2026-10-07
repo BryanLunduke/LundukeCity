@@ -82,12 +82,24 @@ struct Clip {
 
 bool parse_wav(const std::string &path, Clip &clip)
 {
+    std::error_code ec;
+    const auto kind = std::filesystem::symlink_status(path, ec).type();
+    if (ec || kind != std::filesystem::file_type::regular) {
+        return false;
+    }
+    const auto bytes = std::filesystem::file_size(path, ec);
+    if (ec || bytes < 44 || bytes > kMaxWavBytes) {
+        return false;
+    }
     std::ifstream in(path, std::ios::binary);
     if (!in) {
         return false;
     }
-    std::vector<unsigned char> data((std::istreambuf_iterator<char>(in)),
-                                    std::istreambuf_iterator<char>());
+    std::vector<unsigned char> data(static_cast<std::size_t>(bytes));
+    in.read(reinterpret_cast<char *>(data.data()), static_cast<std::streamsize>(data.size()));
+    if (static_cast<std::size_t>(in.gcount()) != data.size()) {
+        return false;
+    }
     if (data.size() < 44 || std::memcmp(data.data(), "RIFF", 4) != 0 ||
         std::memcmp(data.data() + 8, "WAVE", 4) != 0) {
         return false;
@@ -195,31 +207,60 @@ std::vector<std::int16_t> resample(const std::vector<std::int16_t> &in, int from
     return out;
 }
 
+bool wav_file_ok(const std::string &path)
+{
+    Clip clip;
+    return parse_wav(path, clip);
+}
+
+} // namespace
+
+bool preview_wav_file(const std::string &path)
+{
+    return wav_file_ok(path);
+}
+
+std::unordered_map<std::string, std::string> index_sound_directory(const std::string &dir)
+{
+    std::unordered_map<std::string, std::string> map;
+    if (dir.empty()) {
+        return map;
+    }
+    std::error_code ec;
+    for (const auto &entry : std::filesystem::directory_iterator(dir, ec)) {
+        if (ec) {
+            break;
+        }
+        // symlink_status does not follow a link to a huge file.
+        if (entry.symlink_status(ec).type() != std::filesystem::file_type::regular) {
+            continue;
+        }
+        const auto name = entry.path().filename().string();
+        if (name.size() < 5 || name.substr(name.size() - 4) != ".wav") {
+            continue;
+        }
+        const auto bytes = entry.file_size(ec);
+        if (ec || bytes > kMaxWavBytes) {
+            continue;
+        }
+        const std::string key = normalize_name(name.substr(0, name.size() - 4));
+        // The first regular file under the cap wins. A larger collision
+        // used to replace the shipped clip.
+        if (map.find(key) == map.end()) {
+            map.emplace(key, entry.path().string());
+        }
+    }
+    return map;
+}
+
+namespace {
+
 // Paths only. The PCM itself is decoded once, on the mixer thread.
 const std::unordered_map<std::string, std::string> &sound_index()
 {
     static const std::unordered_map<std::string, std::string> index = [] {
-        std::unordered_map<std::string, std::string> map;
         const std::string dir = asset_root().empty() ? std::string() : asset_root() + "/res/sounds";
-        if (dir.empty()) {
-            return map;
-        }
-        std::error_code ec;
-        for (const auto &entry : std::filesystem::directory_iterator(dir, ec)) {
-            if (ec || !entry.is_regular_file()) {
-                continue;
-            }
-            const auto name = entry.path().filename().string();
-            if (name.size() < 5 || name.substr(name.size() - 4) != ".wav") {
-                continue;
-            }
-            const std::string key = normalize_name(name.substr(0, name.size() - 4));
-            const auto found = map.find(key);
-            if (found == map.end() || entry.file_size() > std::filesystem::file_size(found->second, ec)) {
-                map[key] = entry.path().string();
-            }
-        }
-        return map;
+        return index_sound_directory(dir);
     }();
     return index;
 }
@@ -299,6 +340,9 @@ struct SoundPlayer::Mixer {
         std::lock_guard<std::mutex> lock(mu);
         if (muted || stop.load()) {
             return;
+        }
+        if (pending.size() >= kMaxQueuedSounds) {
+            pending.erase(pending.begin());
         }
         pending.push_back(path);
         cv.notify_all();

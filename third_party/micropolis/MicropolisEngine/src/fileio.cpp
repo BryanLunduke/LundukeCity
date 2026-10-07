@@ -68,6 +68,13 @@
 #include "stdafx.h"
 #include "micropolis.h"
 
+#include <cerrno>
+#include <cstring>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <vector>
+
 
 ////////////////////////////////////////////////////////////////////////
 
@@ -150,29 +157,6 @@ static void __attribute__((unused)) half_swap_longs(long *buf, int len)
 #endif
 
 /**
- * Load an array of short values from file to memory.
- *
- * Convert to the correct processor architecture, if necessary.
- * @param buf Buffer to put the loaded short values in.
- * @param len Number of short values to load.
- * @param f   File handle of the file to load from.
- * @return Load was succesfull.
- */
-static bool load_short(short *buf, int len, FILE *f)
-{
-    size_t result = fread(buf, sizeof(short), len, f);
-
-    if ((int)result != len) {
-         return false;
-    }
-
-    SWAP_SHORTS(buf, len);        /* to intel */
-
-    return true;
-}
-
-
-/**
  * Save an array of short values from memory to file.
  *
  * Convert to the correct endianness first, if necessary.
@@ -240,28 +224,48 @@ static bool write_city_name(FILE *f, const std::string &name)
     return true;
 }
 
-static bool read_city_name(FILE *f, std::string &name)
+static bool read_entire_file(FILE *f, std::vector<unsigned char> &data)
 {
-    char magic[4];
-    if (fread(magic, 1, 4, f) != 4) {
+    if (fseek(f, 0L, SEEK_END) != 0) {
         return false;
     }
-    if (magic[0] != kCityNameMagic[0] || magic[1] != kCityNameMagic[1] ||
-        magic[2] != kCityNameMagic[2] || magic[3] != kCityNameMagic[3]) {
+    const long size = ftell(f);
+    if (size < 0 || fseek(f, 0L, SEEK_SET) != 0) {
         return false;
     }
-    unsigned char le[2];
-    if (fread(le, 1, 2, f) != 2) {
+    data.resize(static_cast<std::size_t>(size));
+    if (size == 0) {
+        return true;
+    }
+    return fread(data.data(), 1, data.size(), f) == data.size();
+}
+
+static bool take_shorts(const std::vector<unsigned char> &data, std::size_t &off, short *buf, int count)
+{
+    const std::size_t bytes = static_cast<std::size_t>(count) * sizeof(short);
+    if (off + bytes > data.size()) {
         return false;
     }
-    const unsigned int len = (unsigned int)le[0] | ((unsigned int)le[1] << 8);
-    if (len > 200u) {
+    std::memcpy(buf, data.data() + off, bytes);
+    off += bytes;
+    SWAP_SHORTS(buf, count);
+    return true;
+}
+
+static bool read_city_name_at(const unsigned char *bytes, std::size_t avail, std::string &name)
+{
+    if (bytes == NULL || avail < 6) {
         return false;
     }
-    name.assign(len, '\0');
-    if (len > 0 && fread(&name[0], 1, len, f) != len) {
+    if (bytes[0] != kCityNameMagic[0] || bytes[1] != kCityNameMagic[1] ||
+        bytes[2] != kCityNameMagic[2] || bytes[3] != kCityNameMagic[3]) {
         return false;
     }
+    const unsigned int len = (unsigned int)bytes[4] | ((unsigned int)bytes[5] << 8);
+    if (len > 200u || static_cast<std::size_t>(6 + len) > avail) {
+        return false;
+    }
+    name.assign(reinterpret_cast<const char *>(bytes + 6), len);
     return true;
 }
 
@@ -275,7 +279,6 @@ bool Micropolis::loadFileDir(const char *filename, const char *dir)
 {
     char *path = NULL;
     FILE *f;
-    Quad size;
 
     // If needed, construct a path to the file.
     if (dir != NULL) {
@@ -292,42 +295,66 @@ bool Micropolis::loadFileDir(const char *filename, const char *dir)
         free(path);
     }
 
-    // open() failed; report failure.
+    // open() failed; report failure. The live city is left untouched.
     if (f == NULL) {
         return false;
     }
 
-    fseek(f, 0L, SEEK_END);
-    size = ftell(f);
-    fseek(f, 0L, SEEK_SET);
+    // Read the whole file before writing into the live history or map.
+    // A short or failed read used to leave a half-loaded city in place.
+    std::vector<unsigned char> data;
+    const bool got = read_entire_file(f, data);
+    fclose(f);
+    if (!got || data.size() < 27120) {
+        return false;
+    }
+
+    const int histCount = HISTORY_LENGTH / (int)sizeof(short);
+    const int miscCount = MISC_HISTORY_LENGTH / (int)sizeof(short);
+    const int mapCount = WORLD_W * WORLD_H;
+    std::vector<short> res(histCount);
+    std::vector<short> com(histCount);
+    std::vector<short> ind(histCount);
+    std::vector<short> crime(histCount);
+    std::vector<short> pollution(histCount);
+    std::vector<short> money(histCount);
+    std::vector<short> misc(miscCount);
+    std::vector<short> tiles(mapCount);
+    std::size_t off = 0;
+    const bool parsed =
+        take_shorts(data, off, res.data(), histCount) &&
+        take_shorts(data, off, com.data(), histCount) &&
+        take_shorts(data, off, ind.data(), histCount) &&
+        take_shorts(data, off, crime.data(), histCount) &&
+        take_shorts(data, off, pollution.data(), histCount) &&
+        take_shorts(data, off, money.data(), histCount) &&
+        take_shorts(data, off, misc.data(), miscCount) &&
+        take_shorts(data, off, tiles.data(), mapCount);
+    if (!parsed) {
+        return false;
+    }
+
+    std::memcpy(resHist, res.data(), res.size() * sizeof(short));
+    std::memcpy(comHist, com.data(), com.size() * sizeof(short));
+    std::memcpy(indHist, ind.data(), ind.size() * sizeof(short));
+    std::memcpy(crimeHist, crime.data(), crime.size() * sizeof(short));
+    std::memcpy(pollutionHist, pollution.data(), pollution.size() * sizeof(short));
+    std::memcpy(moneyHist, money.data(), money.size() * sizeof(short));
+    std::memcpy(miscHist, misc.data(), misc.size() * sizeof(short));
+    std::memcpy(&map[0][0], tiles.data(), tiles.size() * sizeof(short));
 
     // 27120 is the classic payload. Newer saves append a city-name trailer.
-    // A short file is not a city; extra bytes that are not a name are ignored.
     cityNameStored = false;
     cityNameStoredText.clear();
-
-    bool result =
-      (size >= 27120) &&
-      load_short(resHist, HISTORY_LENGTH / sizeof(short), f) &&
-      load_short(comHist, HISTORY_LENGTH / sizeof(short), f) &&
-      load_short(indHist, HISTORY_LENGTH / sizeof(short), f) &&
-      load_short(crimeHist, HISTORY_LENGTH / sizeof(short), f) &&
-      load_short(pollutionHist, HISTORY_LENGTH / sizeof(short), f) &&
-      load_short(moneyHist, HISTORY_LENGTH / sizeof(short), f) &&
-      load_short(miscHist, MISC_HISTORY_LENGTH / sizeof(short), f) &&
-      load_short(((short *)&map[0][0]), WORLD_W * WORLD_H, f);
-
-    if (result && size > 27120) {
+    if (data.size() > 27120) {
         std::string stored;
-        if (read_city_name(f, stored)) {
+        if (read_city_name_at(data.data() + 27120, data.size() - 27120, stored)) {
             cityNameStored = true;
             cityNameStoredText = stored;
         }
     }
 
-    fclose(f);
-
-    return result;
+    return true;
 }
 
 /**
@@ -438,12 +465,41 @@ bool Micropolis::loadFile(const char *filename)
  */
 bool Micropolis::saveFile(const char *filename)
 {
-    FILE *f;
-
-    if ((f = fopen(filename, "wb")) == NULL) {
-        /// @todo Report error saving file.
+    if (filename == NULL || filename[0] == '\0') {
         return false;
     }
+
+    // Refuse anything that is not a real file, including a symlink.
+    // fopen() would follow the link and truncate the target.
+    struct stat existing;
+    if (lstat(filename, &existing) == 0) {
+        if (!S_ISREG(existing.st_mode)) {
+            return false;
+        }
+    } else if (errno != ENOENT) {
+        return false;
+    }
+
+    const std::string tmp = std::string(filename) + ".tmp";
+    struct stat tmpStat;
+    if (lstat(tmp.c_str(), &tmpStat) == 0 && !S_ISREG(tmpStat.st_mode)) {
+        return false;
+    }
+
+    const int fd = open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0644);
+    if (fd < 0) {
+        return false;
+    }
+    FILE *f = fdopen(fd, "wb");
+    if (f == NULL) {
+        close(fd);
+        unlink(tmp.c_str());
+        return false;
+    }
+
+    // A tax year that is still on the budget window has to be in the file.
+    // The destination is still untouched if the write below fails.
+    commitBudgetPayment();
 
     /* total funds is a long.....    miscHist is array of ints */
     /* total funds is bien put in the 50th & 51th word of miscHist */
@@ -478,9 +534,24 @@ bool Micropolis::saveFile(const char *filename)
         save_short(((short *)&map[0][0]), WORLD_W * WORLD_H, f) &&
         write_city_name(f, cityName);
 
-    fclose(f);
-
-    return result;
+    if (result && fflush(f) != 0) {
+        result = false;
+    }
+    if (result && fsync(fd) != 0) {
+        result = false;
+    }
+    if (fclose(f) != 0) {
+        result = false;
+    }
+    if (!result) {
+        unlink(tmp.c_str());
+        return false;
+    }
+    if (rename(tmp.c_str(), filename) != 0) {
+        unlink(tmp.c_str());
+        return false;
+    }
+    return true;
 }
 
 
@@ -489,14 +560,13 @@ bool Micropolis::saveFile(const char *filename)
  * @param s Scenario to load.
  * @note \a s cannot be \c SC_NONE.
  */
-void Micropolis::loadScenario(Scenario s)
+bool Micropolis::loadScenario(Scenario s)
 {
     const char *name = NULL;
     const char *fname = NULL;
-
-    cityFileName = "";
-
-    setGameLevel(LEVEL_EASY);
+    Scenario which = SC_DULLSVILLE;
+    Quad time = 0;
+    int funds = 5000;
 
     if (s < SC_DULLSVILLE || s > SC_RIO) {
         s = SC_DULLSVILLE;
@@ -506,71 +576,77 @@ void Micropolis::loadScenario(Scenario s)
         case SC_DULLSVILLE:
             name = "Dullsville";
             fname = "snro.111";
-            scenario = SC_DULLSVILLE;
-            cityTime = ((1900 - 1900) * 48) + 2;
-            setFunds(5000);
+            which = SC_DULLSVILLE;
+            time = ((1900 - 1900) * 48) + 2;
+            funds = 5000;
             break;
         case SC_SAN_FRANCISCO:
             name = "San Francisco";
             fname = "snro.222";
-            scenario = SC_SAN_FRANCISCO;
-            cityTime = ((1906 - 1900) * 48) + 2;
-            setFunds(20000);
+            which = SC_SAN_FRANCISCO;
+            time = ((1906 - 1900) * 48) + 2;
+            funds = 20000;
             break;
         case SC_HAMBURG:
             name = "Hamburg";
             fname = "snro.333";
-            scenario = SC_HAMBURG;
-            cityTime = ((1944 - 1900) * 48) + 2;
-            setFunds(20000);
+            which = SC_HAMBURG;
+            time = ((1944 - 1900) * 48) + 2;
+            funds = 20000;
             break;
         case SC_BERN:
             name = "Bern";
             fname = "snro.444";
-            scenario = SC_BERN;
-            cityTime = ((1965 - 1900) * 48) + 2;
-            setFunds(20000);
+            which = SC_BERN;
+            time = ((1965 - 1900) * 48) + 2;
+            funds = 20000;
             break;
         case SC_TOKYO:
             name = "Tokyo";
             fname = "snro.555";
-            scenario = SC_TOKYO;
-            cityTime = ((1957 - 1900) * 48) + 2;
-            setFunds(20000);
+            which = SC_TOKYO;
+            time = ((1957 - 1900) * 48) + 2;
+            funds = 20000;
             break;
         case SC_DETROIT:
             name = "Detroit";
             fname = "snro.666";
-            scenario = SC_DETROIT;
-            cityTime = ((1972 - 1900) * 48) + 2;
-            setFunds(20000);
+            which = SC_DETROIT;
+            time = ((1972 - 1900) * 48) + 2;
+            funds = 20000;
             break;
         case SC_BOSTON:
             name = "Boston";
             fname = "snro.777";
-            scenario = SC_BOSTON;
-            cityTime = ((2010 - 1900) * 48) + 2;
-            setFunds(20000);
+            which = SC_BOSTON;
+            time = ((2010 - 1900) * 48) + 2;
+            funds = 20000;
             break;
         case SC_RIO:
             name = "Rio de Janeiro";
             fname = "snro.888";
-            scenario = SC_RIO;
-            cityTime = ((2047 - 1900) * 48) + 2;
-            setFunds(20000);
+            which = SC_RIO;
+            time = ((2047 - 1900) * 48) + 2;
+            funds = 20000;
             break;
         default:
             NOT_REACHED();
             break;
     }
 
+    // A failed read must not rename the city or run doSimInit on a partial map.
+    if (!loadFileDir(fname, resourceDir.c_str())) {
+        return false;
+    }
+
+    cityFileName = "";
+    setGameLevel(LEVEL_EASY);
+    scenario = which;
+    cityTime = time;
+    setFunds(funds);
     setCleanCityName(name);
     setSpeed(3);
     setCityTax(7);
-
-    loadFileDir(
-        fname,
-        resourceDir.c_str());
 
     initWillStuff();
     initFundingLevel();
@@ -580,6 +656,7 @@ void Micropolis::loadScenario(Scenario s)
     doInitialEval = false;
     doSimInit();
     didLoadScenario();
+    return true;
 }
 
 
@@ -614,10 +691,8 @@ bool Micropolis::loadCity(const char *filename)
         // Old saves have no name field. The filename stem is the fallback.
         // Newer saves store the real name, spaces included, and must not
         // be run through setCityName() (that turns non-alphanumerics into '_').
-        if (cityNameStored) {
-            setCleanCityName(cityNameStoredText);
-        } else {
-            std::string newCityName = cityFileName.substr(pos, last - pos);
+        const std::string newCityName = cityFileName.substr(pos, last - pos);
+        if (!cityNameStored || !setCleanCityName(cityNameStoredText)) {
             setCleanCityName(newCityName);
         }
 
@@ -707,21 +782,23 @@ void Micropolis::didntSaveCity(const char *msg)
  *       Extract to a sub-function.
  * @bug Function fails if \c lastDot<lastSlash (ie with \c "x.y/bla" )
  */
-void Micropolis::saveCityAs(const char *filename)
+bool Micropolis::saveCityAs(const char *filename)
 {
-    cityFileName = filename;
+    // Keep the previous engine path when the write fails. The UI save
+    // path stays put as well, and the old file is not truncated.
+    if (saveFile(filename)) {
 
-    if (saveFile(cityFileName.c_str())) {
+        cityFileName = filename;
 
         // The file stem is not the city name. Rename City, and names with
         // spaces, have to survive Save and Save As.
         didSaveCity();
-
-    } else {
-
-        didntSaveCity(cityFileName.c_str());
+        return true;
 
     }
+
+    didntSaveCity((filename && *filename) ? filename : "(null)");
+    return false;
 }
 
 
