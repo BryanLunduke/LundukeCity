@@ -9,7 +9,9 @@
 #include "city_session.hpp"
 #include "sound_player.hpp"
 #include "tools.hpp"
+#include "graph_legend.hpp"
 #include "version.hpp"
+#include "view_math.hpp"
 #include "zoom_keys.hpp"
 
 #include "micropolis.h"
@@ -123,7 +125,21 @@ int main()
     }
     player.play("not-a-real-sound");
     player.set_muted(false);
-    player.play("Beep");
+    int started = 0;
+    for (int i = 0; i < 5; ++i) {
+        if (player.play("Beep")) {
+            ++started;
+        }
+    }
+    // No device accepts none of them. A device used to drop sounds after
+    // three threads; the mixer accepts every clip.
+    if (started != 0 && started != 5) {
+        return fail(52, "sound playback still caps the number of clips");
+    }
+    player.set_muted(true);
+    if (player.play("Beep")) {
+        return fail(53, "mute did not stop a new clip");
+    }
 
     const ToolFootprint res_foot = tool_footprint(TOOL_RESIDENTIAL);
     const ToolFootprint commercial = tool_footprint(TOOL_COMMERCIAL);
@@ -190,8 +206,8 @@ int main()
         return fail(22, "Dullsville should start with $5,000");
     }
 
-    if (std::string(kPackageVersion) != "0.9-1" || std::string(kReleaseTrack) != "0.9") {
-        return fail(23, "package version should be the 0.9-1 identity");
+    if (std::string(kPackageVersion) != "0.9-2" || std::string(kReleaseTrack) != "0.9") {
+        return fail(23, "package version should be the 0.9-2 identity");
     }
 
     auto count_kind = [](CitySession &city, bool woods) {
@@ -327,10 +343,9 @@ int main()
         return fail(37, "a blank rename should leave the current name");
     }
 
-    // A paused tick must still advance an animated tile. simTick() does
-    // not do that; CitySession::tick() has to call animateTiles(), the
-    // same follow-up upstream Micropolis front ends use. Park placement
-    // drops a fountain (the animated tile) on one try in five.
+    // Pause leaves animated tiles still. A running tick calls animateTiles()
+    // after simTick(), the same follow-up upstream Micropolis front ends use.
+    // Park placement drops a fountain (the animated tile) on one try in five.
     CitySession animated;
     animated.new_city("Fountain", 21);
     animated.set_speed(0);
@@ -362,14 +377,25 @@ int main()
         return fail(39, "fountain tile is not in the animation table");
     }
     animated.tick();
+    if ((animated.map_value(fountain_x, fountain_y) & LOMASK) != before_tile) {
+        return fail(40, "a paused tick animated the fountain");
+    }
+    animated.set_speed(2);
+    animated.tick();
     const int after = animated.map_value(fountain_x, fountain_y);
     if ((after & LOMASK) != next_tile || (after & ALLBITS) != (before & ALLBITS)) {
-        return fail(40, "tick did not animate the fountain");
+        return fail(41, "a running tick did not animate the fountain");
     }
     const int next_again = Micropolis::getNextAnimatedTile(next_tile);
+    animated.set_simulation_paused(true);
+    animated.tick();
+    if ((animated.map_value(fountain_x, fountain_y) & LOMASK) != next_tile) {
+        return fail(50, "a modal pause animated the fountain");
+    }
+    animated.set_simulation_paused(false);
     animated.tick();
     if ((animated.map_value(fountain_x, fountain_y) & LOMASK) != next_again) {
-        return fail(41, "a second tick did not advance the fountain");
+        return fail(51, "a second running tick did not advance the fountain");
     }
 
     CitySession::NewCitySpec typed;
@@ -419,6 +445,48 @@ int main()
     }
     if (!found_plant || session.query_serial() <= serial_before) {
         return fail(49, "query did not describe a power plant");
+    }
+
+    const AspectBox stretched = largest_aspect_box(80, 78, 6, 5);
+    const double ratio = stretched.height > 0 ? stretched.width / stretched.height : 0;
+    if (ratio < 1.19 || ratio > 1.21 || stretched.x < 0 || stretched.y < 0 ||
+        stretched.x + stretched.width > 80.01 || stretched.y + stretched.height > 78.01) {
+        return fail(54, "minimap land box is not a centered 6:5 rectangle");
+    }
+    double fx = 1;
+    double fy = 1;
+    aspect_box_fraction(stretched, stretched.x, stretched.y, fx, fy);
+    if (fx > 0.001 || fy > 0.001) {
+        return fail(55, "minimap click origin is not the land rectangle");
+    }
+    const AspectBox fitted = largest_aspect_box(78, 65, 6, 5);
+    if (fitted.x > 0.01 || fitted.y > 0.01 || fitted.width < 77.9 || fitted.height < 64.9) {
+        return fail(56, "a 78x65 minimap should fill the widget");
+    }
+    int tx = 9;
+    int ty = 9;
+    if (map_tile_at(-0.4, 8, 0, 0, 16, 120, 100, tx, ty) ||
+        map_tile_at(2, 8, 5, 0, 16, 120, 100, tx, ty)) {
+        return fail(57, "a negative map coordinate was treated as tile 0");
+    }
+    if (!map_tile_at(16, 32, 0, 0, 16, 120, 100, tx, ty) || tx != 1 || ty != 2) {
+        return fail(58, "tile hit testing missed an in-map pixel");
+    }
+    if (graph_legend_caption("Residential", GraphLegendKind::People, 100) != "Residential: 16,000 people" ||
+        graph_legend_caption("Commercial", GraphLegendKind::People, 2) != "Commercial: 320 people" ||
+        graph_legend_caption("Industrial", GraphLegendKind::People, 0) != "Industrial: 0 people") {
+        return fail(59, "R/C/I legend is not sample times 160 people");
+    }
+    if (graph_legend_caption("Crime", GraphLegendKind::Level, 40) != "Crime: 40 level" ||
+        graph_legend_caption("Pollution", GraphLegendKind::Level, 0) != "Pollution: 0 level") {
+        return fail(60, "crime and pollution legend is not labeled as a level");
+    }
+    if (graph_legend_caption("Cash flow", GraphLegendKind::CashFlow, 128) != "Cash flow: $0" ||
+        graph_legend_caption("Population", GraphLegendKind::Population, 16000) != "Population: 16,000") {
+        return fail(61, "population or cash-flow legend changed");
+    }
+    if (!session.auto_goto()) {
+        return fail(62, "a new city should start with auto-goto on");
     }
     return 0;
 }

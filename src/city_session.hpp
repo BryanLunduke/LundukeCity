@@ -132,6 +132,11 @@ public:
 
     void set_speed(int speed);
     int speed() const;
+    // Modal dialogs pause simTick and tile animation until they return.
+    void set_simulation_paused(bool paused);
+    bool simulation_paused() const;
+    // year * 12 + month, used to refresh evaluation about once a month.
+    int game_month_index() const;
 
     void set_auto_budget(bool on);
     bool auto_budget() const;
@@ -152,6 +157,8 @@ public:
     bool sound_enabled() const;
     std::vector<std::string> take_sounds();
     bool take_budget_request();
+    // A modal dialog deferred the budget window. Ask for it again.
+    void keep_budget_request();
     // Charge a tax year that was waiting on the budget window. A no-op
     // when nothing is waiting, including a second close.
     void commit_pending_budget();
@@ -256,5 +263,6 @@ private:
     int quake_strength_ = 0;
     bool sound_enabled_ = true;
     bool ready_ = false;
+    bool simulation_paused_ = false;
     int speed_ = 2;
 };

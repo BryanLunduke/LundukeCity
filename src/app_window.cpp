@@ -177,10 +177,12 @@ void AppWindow::build_menus()
     auto_budget_item_ = Gtk::manage(new Gtk::CheckMenuItem("Auto _budget", true));
     auto_bulldoze_item_ = Gtk::manage(new Gtk::CheckMenuItem("Auto _bulldoze", true));
     disasters_item_ = Gtk::manage(new Gtk::CheckMenuItem("Enable _disasters", true));
+    auto_goto_item_ = Gtk::manage(new Gtk::CheckMenuItem("Auto-_goto", true));
     mute_item_ = Gtk::manage(new Gtk::CheckMenuItem("_Mute sound", true));
     options_menu->append(*auto_budget_item_);
     options_menu->append(*auto_bulldoze_item_);
     options_menu->append(*disasters_item_);
+    options_menu->append(*auto_goto_item_);
     options_menu->append(*mute_item_);
     options_menu->append(*Gtk::manage(new Gtk::SeparatorMenuItem()));
 
@@ -296,9 +298,16 @@ void AppWindow::bind_session()
             session_->set_disasters(disasters_item_->get_active());
         }
     });
+    auto_goto_item_->signal_toggled().connect([this] {
+        if (!updating_checks_) {
+            session_->set_auto_goto(auto_goto_item_->get_active());
+        }
+    });
     mute_item_->signal_toggled().connect([this] {
         if (!updating_checks_) {
-            session_->set_sound_enabled(!mute_item_->get_active());
+            const bool enabled = !mute_item_->get_active();
+            session_->set_sound_enabled(enabled);
+            sound_.set_muted(!enabled);
         }
     });
     for (int i = 0; i < 4; ++i) {
@@ -309,8 +318,8 @@ void AppWindow::bind_session()
         });
     }
 
-    scroll_.get_hadjustment()->signal_value_changed().connect([this] { minimap_.queue_draw(); });
-    scroll_.get_vadjustment()->signal_value_changed().connect([this] { minimap_.queue_draw(); });
+    scroll_.get_hadjustment()->signal_value_changed().connect([this] { minimap_.invalidate_viewport(); });
+    scroll_.get_vadjustment()->signal_value_changed().connect([this] { minimap_.invalidate_viewport(); });
 }
 
 void AppWindow::refresh()
@@ -326,6 +335,7 @@ void AppWindow::refresh()
         shown_engine_message_ = engine_message;
         message_label_.set_text(engine_message);
         hint_after_ = now + std::chrono::seconds(4);
+        query_pinned_ = false;
     } else if (hint_after_.time_since_epoch().count() == 0 || now >= hint_after_) {
         message_label_.set_text(tool_hint_);
     }
@@ -338,6 +348,7 @@ void AppWindow::refresh()
             message_label_.set_text(engine_message);
             shown_engine_message_ = engine_message;
             hint_after_ = now + std::chrono::hours(1);
+            query_pinned_ = true;
             show_query_dialog(engine_message);
         }
     }
@@ -367,8 +378,8 @@ void AppWindow::refresh()
         map_.set_shake(0, 0);
     }
 
-    map_.queue_draw();
-    minimap_.queue_draw();
+    map_.sync();
+    minimap_.sync();
     demand_.queue_draw();
     if (budget_window_.get_visible()) {
         budget_window_.sync();
@@ -377,13 +388,15 @@ void AppWindow::refresh()
         graphs_window_.sync();
     }
     if (evaluation_window_.get_visible()) {
+        evaluation_window_.note_month(session_->game_month_index());
         evaluation_window_.sync();
     }
     for (auto &overlay : overlays_) {
         if (overlay && overlay->get_visible()) {
-            overlay->queue_draw();
+            overlay->sync();
         }
     }
+    sound_.set_muted(!session_->sound_enabled());
     for (const auto &name : session_->take_sounds()) {
         sound_.play(name);
     }
@@ -398,7 +411,9 @@ void AppWindow::sync_option_checks()
     auto_budget_item_->set_active(session_->auto_budget());
     auto_bulldoze_item_->set_active(session_->auto_bulldoze());
     disasters_item_->set_active(session_->disasters());
+    auto_goto_item_->set_active(session_->auto_goto());
     mute_item_->set_active(!session_->sound_enabled());
+    sound_.set_muted(!session_->sound_enabled());
     const int speed = session_->speed();
     if (speed >= 0 && speed < 4) {
         speed_items_[speed]->set_active(true);
@@ -415,9 +430,40 @@ void AppWindow::clear_transient_message()
 {
     shown_engine_message_.clear();
     hint_after_ = {};
+    query_pinned_ = false;
     if (query_dialog_) {
         query_dialog_->hide();
     }
+    show_tool_hint();
+}
+
+void AppWindow::begin_modal()
+{
+    if (modal_depth_++ == 0 && session_) {
+        session_->set_simulation_paused(true);
+    }
+}
+
+void AppWindow::end_modal()
+{
+    if (modal_depth_ == 0) {
+        return;
+    }
+    if (--modal_depth_ == 0) {
+        if (session_) {
+            session_->set_simulation_paused(false);
+        }
+        refresh();
+    }
+}
+
+void AppWindow::release_query_pin()
+{
+    if (!query_pinned_) {
+        return;
+    }
+    query_pinned_ = false;
+    hint_after_ = {};
     show_tool_hint();
 }
 
@@ -478,9 +524,13 @@ void AppWindow::show_query_dialog(const std::string &text)
         content->set_border_width(12);
         content->set_spacing(6);
         content->pack_start(*query_body_, Gtk::PACK_EXPAND_WIDGET);
-        query_dialog_->signal_response().connect([this](int) { query_dialog_->hide(); });
+        query_dialog_->signal_response().connect([this](int) {
+            query_dialog_->hide();
+            release_query_pin();
+        });
         query_dialog_->signal_delete_event().connect([this](GdkEventAny *) {
             query_dialog_->hide();
+            release_query_pin();
             return true;
         });
     }
@@ -508,6 +558,9 @@ void AppWindow::show_query_dialog(const std::string &text)
 
 bool AppWindow::on_tick()
 {
+    if (modal_depth_ > 0) {
+        return true;
+    }
     session_->tick();
     refresh();
     return true;
@@ -533,6 +586,7 @@ bool AppWindow::on_key_press_event(GdkEventKey *event)
 
 void AppWindow::on_new_city()
 {
+    ModalPause pause(*this);
     CitySession::NewCitySpec spec;
     const char *shot = std::getenv("LUNDUKE_CITY_SHOT_NEWCITY");
     const std::string shot_path = shot != nullptr ? shot : "";
@@ -549,6 +603,7 @@ void AppWindow::on_new_city()
 
 void AppWindow::on_rename_city()
 {
+    ModalPause pause(*this);
     Gtk::Dialog dialog("Rename City", *this, true);
     dialog.add_button("_Cancel", Gtk::RESPONSE_CANCEL);
     dialog.add_button("_Rename", Gtk::RESPONSE_OK);
@@ -586,6 +641,7 @@ void AppWindow::on_rename_city()
 
 void AppWindow::on_load_city()
 {
+    ModalPause pause(*this);
     Gtk::FileChooserDialog dialog(*this, "Load City", Gtk::FILE_CHOOSER_ACTION_OPEN);
     dialog.add_button("_Cancel", Gtk::RESPONSE_CANCEL);
     dialog.add_button("_Open", Gtk::RESPONSE_ACCEPT);
@@ -625,6 +681,7 @@ void AppWindow::on_save_city()
 
 void AppWindow::on_save_city_as()
 {
+    ModalPause pause(*this);
     Gtk::FileChooserDialog dialog(*this, "Save City", Gtk::FILE_CHOOSER_ACTION_SAVE);
     dialog.set_do_overwrite_confirmation(true);
     dialog.add_button("_Cancel", Gtk::RESPONSE_CANCEL);
@@ -651,6 +708,7 @@ void AppWindow::on_save_city_as()
 
 void AppWindow::on_play_scenario()
 {
+    ModalPause pause(*this);
     class Columns : public Gtk::TreeModel::ColumnRecord {
     public:
         Columns()
@@ -748,6 +806,10 @@ void AppWindow::on_play_scenario()
 
 void AppWindow::on_budget()
 {
+    if (modal_depth_ > 0) {
+        session_->keep_budget_request();
+        return;
+    }
     budget_window_.present_book();
 }
 
@@ -772,6 +834,7 @@ void AppWindow::on_evaluation()
 
 void AppWindow::on_about()
 {
+    ModalPause pause(*this);
     AboutDialog dialog(*this);
     const char *shot = std::getenv("LUNDUKE_CITY_SHOT_ABOUT");
     if (shot != nullptr && shot[0] != '\0') {

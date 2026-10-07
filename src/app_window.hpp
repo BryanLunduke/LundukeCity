@@ -62,6 +62,9 @@ private:
     void on_evaluation();
     void on_overlay(CitySession::MapLayer layer);
     void on_about();
+    void begin_modal();
+    void end_modal();
+    void release_query_pin();
     void prepare_demo_if_requested();
     void save_widget_png(Gtk::Widget &widget, const char *path);
     void grab_followup_shots();
@@ -94,6 +97,7 @@ private:
     Gtk::CheckMenuItem *auto_budget_item_ = nullptr;
     Gtk::CheckMenuItem *auto_bulldoze_item_ = nullptr;
     Gtk::CheckMenuItem *disasters_item_ = nullptr;
+    Gtk::CheckMenuItem *auto_goto_item_ = nullptr;
     Gtk::CheckMenuItem *mute_item_ = nullptr;
     Gtk::RadioMenuItem *speed_items_[4] = {nullptr, nullptr, nullptr, nullptr};
 
@@ -114,6 +118,19 @@ private:
     std::unique_ptr<Gtk::Dialog> query_dialog_;
     Gtk::Label *query_body_ = nullptr;
     int shown_query_serial_ = 0;
+    bool query_pinned_ = false;
+    int modal_depth_ = 0;
+
+    class ModalPause {
+    public:
+        explicit ModalPause(AppWindow &window) : window_(window) { window_.begin_modal(); }
+        ~ModalPause() { window_.end_modal(); }
+        ModalPause(const ModalPause &) = delete;
+        ModalPause &operator=(const ModalPause &) = delete;
+
+    private:
+        AppWindow &window_;
+    };
     int quake_strength_ = 0;
     std::chrono::steady_clock::time_point quake_started_{};
     std::chrono::steady_clock::time_point quake_until_{};

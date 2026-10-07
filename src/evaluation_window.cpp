@@ -119,10 +119,20 @@ void EvaluationWindow::present_report()
 {
     if (session_ != nullptr) {
         session_->update_evaluation();
+        month_index_ = session_->game_month_index();
     }
     show_all();
     present();
     sync();
+}
+
+void EvaluationWindow::note_month(int month_index)
+{
+    if (session_ == nullptr || month_index == month_index_) {
+        return;
+    }
+    month_index_ = month_index;
+    session_->update_evaluation();
 }
 
 void EvaluationWindow::sync()

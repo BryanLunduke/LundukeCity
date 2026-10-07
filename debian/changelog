@@ -1,3 +1,27 @@
+lunduke-city (0.9-2) unstable; urgency=medium
+
+  * Residential demand keeps the residential ratio. Industrial demand is
+    clamped to its own maximum.
+  * Disaster messages play their sounds. Options → Auto-goto is on for a
+    new city and follows the flag stored in a save.
+  * The city map keeps its image and redraws tiles that changed, including
+    the unpowered-zone blink. The tool outline is separate. Paused cities
+    do not animate tiles. The minimap keeps one color buffer, a 6:5 shape,
+    and redraws only the viewport when the view scrolls.
+  * Tool drags grab the pointer and scroll at the edge of the view.
+  * Loading a city clears a previous error and reports "Loaded a saved
+    city."
+  * Evaluation refreshes opinion and problems on a month of game time.
+    Graph legends show residential, commercial, and industrial as people,
+    and crime and pollution as levels.
+  * Power, crime, and pollution maps keep a retained image. Density maps
+    draw 60 by 50 cells. Sounds are decoded once and mixed on one stream.
+  * Closing the query dialog restores the tool hint. The earthquake
+    outline stays on the shaken tiles. Modal dialogs pause the simulation
+    and show a waiting budget when they return.
+
+ -- LCOS <lcos@lunduke.com>  Wed, 07 Oct 2026 06:30:00 +0000
+
 lunduke-city (0.9-1) unstable; urgency=medium
 
   * LCOS 0.9 track identity bump (0.8-2 → 0.9 / Debian 0.9-1). Features
