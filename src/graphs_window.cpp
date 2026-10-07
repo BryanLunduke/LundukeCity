@@ -5,6 +5,7 @@
 #include "graphs_window.hpp"
 
 #include "city_session.hpp"
+#include "graph_legend.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -51,7 +52,7 @@ long population_at(const CitySession &session, CitySession::HistoryScale scale, 
     const int commercial = session.history_value(CitySession::HistorySeries::Commercial, scale, index);
     const int industrial = session.history_value(CitySession::HistorySeries::Industrial, scale, index);
     // resHist stores resPop/8. City population is (resPop + (comPop + indPop) * 8) * 20.
-    return static_cast<long>(residential + commercial + industrial) * 160L;
+    return static_cast<long>(residential + commercial + industrial) * kHistoryPeoplePerSample;
 }
 
 } // namespace
@@ -190,19 +191,23 @@ bool GraphsWindow::on_draw(const Cairo::RefPtr<Cairo::Context> &cr)
         Rgb color;
         bool population;
         bool cash;
+        GraphLegendKind legend;
         CitySession::HistorySeries history;
     };
     const Series series[] = {
         {"Population", dark ? Rgb{0.95, 0.95, 0.95} : Rgb{0.15, 0.15, 0.15}, true, false,
+         GraphLegendKind::Population, CitySession::HistorySeries::Residential},
+        {"Residential", {0.20, 0.62, 0.28}, false, false, GraphLegendKind::People,
          CitySession::HistorySeries::Residential},
-        {"Residential", {0.20, 0.62, 0.28}, false, false, CitySession::HistorySeries::Residential},
-        {"Commercial", {0.20, 0.38, 0.82}, false, false, CitySession::HistorySeries::Commercial},
+        {"Commercial", {0.20, 0.38, 0.82}, false, false, GraphLegendKind::People,
+         CitySession::HistorySeries::Commercial},
         {"Industrial", dark ? Rgb{0.95, 0.78, 0.25} : Rgb{0.72, 0.55, 0.08}, false, false,
-         CitySession::HistorySeries::Industrial},
-        {"Cash flow", {0.10, 0.55, 0.48}, false, true, CitySession::HistorySeries::CashFlow},
-        {"Crime", {0.80, 0.22, 0.18}, false, false, CitySession::HistorySeries::Crime},
+         GraphLegendKind::People, CitySession::HistorySeries::Industrial},
+        {"Cash flow", {0.10, 0.55, 0.48}, false, true, GraphLegendKind::CashFlow,
+         CitySession::HistorySeries::CashFlow},
+        {"Crime", {0.80, 0.22, 0.18}, false, false, GraphLegendKind::Level, CitySession::HistorySeries::Crime},
         {"Pollution", dark ? Rgb{0.78, 0.62, 0.28} : Rgb{0.45, 0.38, 0.12}, false, false,
-         CitySession::HistorySeries::Pollution},
+         GraphLegendKind::Level, CitySession::HistorySeries::Pollution},
     };
 
     auto sample = [&](const Series &item, int index) -> double {
@@ -256,16 +261,8 @@ bool GraphsWindow::on_draw(const Cairo::RefPtr<Cairo::Context> &cr)
         cr->line_to(x + 16, y + 4);
         cr->stroke();
 
-        const int newest = static_cast<int>(std::lround(sample(item, 0)));
-        std::string caption = item.name;
-        caption += ": ";
-        if (item.population) {
-            caption += grouped(newest);
-        } else if (item.cash) {
-            caption += money(static_cast<long>(newest - 128) * 20L);
-        } else {
-            caption += std::to_string(newest);
-        }
+        const long newest = static_cast<long>(std::lround(sample(item, 0)));
+        const std::string caption = graph_legend_caption(item.name, item.legend, newest);
         cr->set_source_rgba(fg.get_red(), fg.get_green(), fg.get_blue(), 1);
         auto layout = create_pango_layout(caption);
         cr->move_to(x + 22, y - 4);

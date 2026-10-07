@@ -404,6 +404,13 @@ void Micropolis::sendMessage(short mesgNum, short x, short y, bool picture, bool
         doAutoGoto(x, y, NULL);
     }
 
+    // Siren, monster, honk, and meltdown clips are chosen from the message
+    // number. Play them before the front end is told, so the callback can
+    // already see the sound on its queue.
+    if (mesgNum >= 0) {
+        doMakeSound(mesgNum, x, y);
+    }
+
     callback("update", "sdddbb", "message",
         (int)mesgNum,
         (int)x,

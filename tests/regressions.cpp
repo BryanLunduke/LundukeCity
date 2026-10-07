@@ -333,6 +333,52 @@ static int test_view_and_sprites()
     if (seen != 4) {
         return fail(30, "sprites() did not report the vehicles in a playing city");
     }
+    if (!cities.auto_goto()) {
+        return fail(32, "a new city should start with auto-goto on");
+    }
+    cities.set_auto_goto(false);
+    const std::string goto_path = "/tmp/lunduke-auto-goto.cty";
+    if (!cities.save_city_as(goto_path)) {
+        return fail(33, "could not save the auto-goto flag");
+    }
+    CitySession loaded_goto;
+    if (loaded_goto.load_city("/tmp/does-not-exist-lunduke.cty") ||
+        loaded_goto.message().find("Could not load") == std::string::npos) {
+        return fail(34, "a missing city file did not report an error");
+    }
+    if (!loaded_goto.load_city(goto_path) || loaded_goto.auto_goto() ||
+        loaded_goto.message() != "Loaded a saved city.") {
+        std::fprintf(stderr, "goto %d message '%s'\n", loaded_goto.auto_goto() ? 1 : 0,
+                     loaded_goto.message().c_str());
+        return fail(35, "load did not keep auto-goto off or replace the error");
+    }
+    cities.set_auto_goto(true);
+    if (!cities.save_city_as(goto_path) || !loaded_goto.load_city(goto_path) || !loaded_goto.auto_goto() ||
+        loaded_goto.message() != "Loaded a saved city.") {
+        return fail(36, "load did not honor a saved auto-goto flag");
+    }
+    std::remove(goto_path.c_str());
+
+    CitySession noisy;
+    noisy.new_city("Siren", 4);
+    noisy.set_sound_enabled(true);
+    noisy.set_auto_goto(true);
+    noisy.disaster_earthquake();
+    bool siren = false;
+    for (const auto &sound : noisy.take_sounds()) {
+        if (sound == "Siren") {
+            siren = true;
+        }
+    }
+    if (!siren) {
+        return fail(37, "earthquake message did not queue a siren");
+    }
+    int view_x = 0;
+    int view_y = 0;
+    if (!noisy.take_view_target(view_x, view_y)) {
+        return fail(38, "auto-goto on did not move the earthquake view");
+    }
+
     cities.new_city("Second", 7);
     for (const auto &dot : cities.sprites()) {
         if (dot.type == SPRITE_TRAIN || dot.type == SPRITE_AIRPLANE || dot.type == SPRITE_SHIP ||

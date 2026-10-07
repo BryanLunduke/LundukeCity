@@ -35,7 +35,11 @@ Comment:
  voteProblems() wraps the problem index with >= PROBNUM, so a yearly
  evaluation does not read past problemTable or write problemOrder[0];
  destroy() frees sprites on the active list and the free list as well
- as the map arrays.
+ as the map arrays;
+ setValves() clamps the industrial ratio into indRatio (the residential
+ ratio computed above it is left alone);
+ sendMessage() calls doMakeSound() before the front-end callback so
+ disaster messages play their sounds.
  Tcl/Tk is not part of this import.
  See third_party/micropolis/README.md.
 

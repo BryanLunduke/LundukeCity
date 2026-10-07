@@ -1,12 +1,30 @@
 # Lunduke City
 
 Lunduke City is a windowed city-building game for LCOS. Version 0.9
-(Debian package 0.9-1, Meson project version 0.9.0) is the LCOS 0.9
+(Debian package 0.9-2, Meson project version 0.9.0) is the LCOS 0.9
 release track: classic menu / funds / tool-palette / map layout, wired
 to the Micropolis simulation engine. The map uses the Micropolis
 16-pixel tiles, and trains, ships, aircraft, tornadoes, and the monster
-are drawn from the engine's sprite frames. Identity bump from 0.8-2;
-features and UI unchanged. Official 0.8 stays at tag `v0.8.1`.
+are drawn from the engine's sprite frames. Debian revision 0.9-2
+fixes residential demand, disaster sounds, map redraw, and the other
+items from the 0.9 review. Official 0.8 stays at tag `v0.8.1`.
+
+## What 0.9-2 fixes
+
+- Residential growth follows the residential ratio. Industrial demand
+  is clamped on its own.
+- Fire, tornado, earthquake, crash, monster, meltdown, riot, and traffic
+  messages play their sounds. Options → Auto-goto starts on for a new
+  city and keeps the value stored in a save.
+- The map and minimap redraw tiles that changed. Pause stops tile
+  animation. The minimap is 6:5, like the city.
+- Roads, wires, and the bulldozer keep the pointer grabbed and scroll
+  the view at the edge.
+- A successful load replaces an earlier load error.
+- Evaluation updates opinion and problems about once a month of game
+  time. Graph legends show R/C/I as people and crime/pollution as levels.
+- Sounds mix on one stream. Closing Query shows the tool price again.
+  Modal dialogs pause the city and open a waiting budget afterward.
 
 The interface is original. It does not use Tcl/Tk. Lunduke City is an
 independent project and is not affiliated with or endorsed by Electronic Arts.

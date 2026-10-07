@@ -26,7 +26,7 @@ features = executable(
   dependencies: [micropolis_dep, thread_dep],
   cpp_args: [
     '-DLUNDUKE_CITY_ASSET_DIR="' + lunduke_asset_dir + '"',
-    '-DLUNDUKE_CITY_PACKAGE_VERSION="0.9-1"',
+    '-DLUNDUKE_CITY_PACKAGE_VERSION="0.9-2"',
   ],
 )
 
@@ -44,7 +44,7 @@ regressions = executable(
   dependencies: [micropolis_dep, thread_dep],
   cpp_args: [
     '-DLUNDUKE_CITY_ASSET_DIR="' + lunduke_asset_dir + '"',
-    '-DLUNDUKE_CITY_PACKAGE_VERSION="0.9-1"',
+    '-DLUNDUKE_CITY_PACKAGE_VERSION="0.9-2"',
   ],
 )
 

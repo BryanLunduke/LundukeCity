@@ -8,12 +8,14 @@
 
 #include <dlfcn.h>
 
+#include <algorithm>
+#include <condition_variable>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <mutex>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -161,6 +163,39 @@ bool parse_wav(const std::string &path, Clip &clip)
     return !clip.samples.empty();
 }
 
+constexpr int kMixRate = 22050;
+
+std::vector<std::int16_t> resample(const std::vector<std::int16_t> &in, int from_rate, int to_rate)
+{
+    if (in.empty() || from_rate <= 0 || to_rate <= 0 || from_rate == to_rate) {
+        return in;
+    }
+    const double step = static_cast<double>(from_rate) / static_cast<double>(to_rate);
+    const auto out_n = static_cast<std::size_t>(static_cast<double>(in.size()) / step);
+    std::vector<std::int16_t> out;
+    out.reserve(out_n);
+    for (std::size_t i = 0; i < out_n; ++i) {
+        const double pos = static_cast<double>(i) * step;
+        const auto i0 = static_cast<std::size_t>(pos);
+        if (i0 >= in.size()) {
+            break;
+        }
+        const auto i1 = std::min(i0 + 1, in.size() - 1);
+        const double frac = pos - static_cast<double>(i0);
+        const double mixed = static_cast<double>(in[i0]) * (1.0 - frac) + static_cast<double>(in[i1]) * frac;
+        int sample = static_cast<int>(mixed);
+        if (sample > 32767) {
+            sample = 32767;
+        }
+        if (sample < -32768) {
+            sample = -32768;
+        }
+        out.push_back(static_cast<std::int16_t>(sample));
+    }
+    return out;
+}
+
+// Paths only. The PCM itself is decoded once, on the mixer thread.
 const std::unordered_map<std::string, std::string> &sound_index()
 {
     static const std::unordered_map<std::string, std::string> index = [] {
@@ -176,10 +211,6 @@ const std::unordered_map<std::string, std::string> &sound_index()
             }
             const auto name = entry.path().filename().string();
             if (name.size() < 5 || name.substr(name.size() - 4) != ".wav") {
-                continue;
-            }
-            Clip probe;
-            if (!parse_wav(entry.path().string(), probe)) {
                 continue;
             }
             const std::string key = normalize_name(name.substr(0, name.size() - 4));
@@ -209,34 +240,183 @@ bool open_device(int rate, void *&stream)
     return stream != nullptr;
 }
 
-void playback_thread(Clip clip)
-{
-    void *stream = nullptr;
-    if (!open_device(clip.rate, stream)) {
-        return;
-    }
-    PulseApi &api = pulse_api();
-    int err = 0;
-    api.write(stream, clip.samples.data(), clip.samples.size() * sizeof(std::int16_t), &err);
-    api.free_fn(stream);
-}
-
 } // namespace
+
+struct SoundPlayer::Mixer {
+    struct Voice {
+        std::shared_ptr<const std::vector<std::int16_t>> samples;
+        std::size_t pos = 0;
+    };
+
+    std::mutex mu;
+    std::condition_variable cv;
+    std::vector<Voice> voices;
+    std::vector<std::string> pending;
+    std::mutex clip_mu;
+    std::unordered_map<std::string, std::shared_ptr<const std::vector<std::int16_t>>> clips;
+    std::thread thread;
+    std::atomic<bool> stop{false};
+    bool muted = false;
+    bool started = false;
+
+    ~Mixer()
+    {
+        stop.store(true);
+        cv.notify_all();
+        if (thread.joinable()) {
+            thread.join();
+        }
+    }
+
+    std::shared_ptr<const std::vector<std::int16_t>> clip_for(const std::string &path)
+    {
+        {
+            std::lock_guard<std::mutex> lock(clip_mu);
+            const auto found = clips.find(path);
+            if (found != clips.end()) {
+                return found->second;
+            }
+        }
+        Clip parsed;
+        if (!parse_wav(path, parsed)) {
+            return {};
+        }
+        auto samples = std::make_shared<const std::vector<std::int16_t>>(resample(parsed.samples, parsed.rate, kMixRate));
+        if (samples->empty()) {
+            return {};
+        }
+        std::lock_guard<std::mutex> lock(clip_mu);
+        const auto found = clips.find(path);
+        if (found != clips.end()) {
+            return found->second;
+        }
+        clips.emplace(path, samples);
+        return samples;
+    }
+
+    void request(const std::string &path)
+    {
+        std::lock_guard<std::mutex> lock(mu);
+        if (muted || stop.load()) {
+            return;
+        }
+        pending.push_back(path);
+        cv.notify_all();
+    }
+
+    void set_muted(bool on)
+    {
+        std::lock_guard<std::mutex> lock(mu);
+        muted = on;
+        if (on) {
+            voices.clear();
+            pending.clear();
+        }
+        cv.notify_all();
+    }
+
+    void loop()
+    {
+        void *stream = nullptr;
+        if (!open_device(kMixRate, stream)) {
+            return;
+        }
+        constexpr std::size_t kChunk = 512;
+        std::vector<std::int32_t> acc(kChunk);
+        std::vector<std::int16_t> out(kChunk);
+        while (!stop.load()) {
+            std::vector<std::string> todo;
+            {
+                std::unique_lock<std::mutex> lock(mu);
+                if (voices.empty() && pending.empty()) {
+                    cv.wait(lock, [&] { return stop.load() || !pending.empty(); });
+                }
+                if (stop.load()) {
+                    break;
+                }
+                if (muted) {
+                    voices.clear();
+                    pending.clear();
+                    continue;
+                }
+                todo.swap(pending);
+            }
+            for (const auto &path : todo) {
+                if (stop.load()) {
+                    break;
+                }
+                auto clip = clip_for(path);
+                if (!clip) {
+                    continue;
+                }
+                std::lock_guard<std::mutex> lock(mu);
+                if (muted || stop.load()) {
+                    break;
+                }
+                voices.push_back(Voice{std::move(clip), 0});
+            }
+            bool have = false;
+            {
+                std::lock_guard<std::mutex> lock(mu);
+                if (stop.load()) {
+                    break;
+                }
+                if (muted) {
+                    voices.clear();
+                    continue;
+                }
+                if (voices.empty()) {
+                    continue;
+                }
+                std::fill(acc.begin(), acc.end(), 0);
+                for (auto it = voices.begin(); it != voices.end();) {
+                    const auto &samples = *it->samples;
+                    for (std::size_t i = 0; i < acc.size() && it->pos < samples.size(); ++i, ++it->pos) {
+                        acc[i] += samples[it->pos];
+                    }
+                    if (it->pos >= samples.size()) {
+                        it = voices.erase(it);
+                    } else {
+                        ++it;
+                    }
+                }
+                for (std::size_t i = 0; i < out.size(); ++i) {
+                    int sample = acc[i];
+                    if (sample > 32767) {
+                        sample = 32767;
+                    }
+                    if (sample < -32768) {
+                        sample = -32768;
+                    }
+                    out[i] = static_cast<std::int16_t>(sample);
+                }
+                have = true;
+            }
+            if (!have || stop.load()) {
+                continue;
+            }
+            int err = 0;
+            if (pulse_api().write(stream, out.data(), out.size() * sizeof(std::int16_t), &err) < 0) {
+                break;
+            }
+        }
+        if (stream != nullptr) {
+            pulse_api().free_fn(stream);
+        }
+    }
+};
 
 SoundPlayer::SoundPlayer() = default;
 
-SoundPlayer::~SoundPlayer()
-{
-    for (auto &job : jobs_) {
-        if (job.thread.joinable()) {
-            job.thread.join();
-        }
-    }
-}
+SoundPlayer::~SoundPlayer() = default;
 
 void SoundPlayer::set_muted(bool muted)
 {
-    muted_ = muted;
+    const bool was = muted_.exchange(muted);
+    if (mixer_) {
+        mixer_->set_muted(muted);
+    }
+    (void)was;
 }
 
 bool SoundPlayer::probe()
@@ -250,30 +430,30 @@ bool SoundPlayer::probe()
         return false;
     }
     void *stream = nullptr;
-    device_ok_ = open_device(22050, stream);
+    device_ok_ = open_device(kMixRate, stream);
     if (stream != nullptr) {
         pulse_api().free_fn(stream);
     }
     return device_ok_;
 }
 
-void SoundPlayer::reap()
+void SoundPlayer::ensure_mixer()
 {
-    for (auto it = jobs_.begin(); it != jobs_.end();) {
-        if (it->done && it->done->load()) {
-            if (it->thread.joinable()) {
-                it->thread.join();
-            }
-            it = jobs_.erase(it);
-        } else {
-            ++it;
-        }
+    if (!mixer_) {
+        mixer_ = std::make_unique<Mixer>();
     }
+    if (mixer_->started) {
+        return;
+    }
+    mixer_->started = true;
+    mixer_->muted = muted_.load();
+    Mixer *mixer = mixer_.get();
+    mixer_->thread = std::thread([mixer] { mixer->loop(); });
 }
 
 bool SoundPlayer::play(const std::string &engine_name)
 {
-    if (muted_ || engine_name.empty()) {
+    if (muted_.load() || engine_name.empty()) {
         return false;
     }
     std::string key = normalize_name(engine_name);
@@ -289,23 +469,7 @@ bool SoundPlayer::play(const std::string &engine_name)
     if (!probe() || !device_ok_) {
         return false;
     }
-
-    Clip clip;
-    if (!parse_wav(found->second, clip)) {
-        return false;
-    }
-
-    reap();
-    if (jobs_.size() >= 3) {
-        return false;
-    }
-    auto done = std::make_shared<std::atomic<bool>>(false);
-    Job job;
-    job.done = done;
-    job.thread = std::thread([clip = std::move(clip), done]() mutable {
-        playback_thread(std::move(clip));
-        done->store(true);
-    });
-    jobs_.push_back(std::move(job));
+    ensure_mixer();
+    mixer_->request(found->second);
     return true;
 }

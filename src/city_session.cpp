@@ -332,6 +332,8 @@ void CitySession::new_city(const NewCitySpec &spec)
     sim.setGameLevelFunds(static_cast<GameLevel>(level));
     sim.setSpeed(static_cast<short>(speed_));
     sim.setEnableSound(sound_enabled_);
+    // A new city follows disasters. A loaded city keeps the flag in the file.
+    sim.setAutoGoto(true);
     save_path_.clear();
     message_.clear();
     ready_ = true;
@@ -386,6 +388,7 @@ int CitySession::generated_seed() const
 
 bool CitySession::load_city(const std::string &path)
 {
+    message_.clear();
     Micropolis &sim = engine_->sim;
     if (!sim.loadCity(path.c_str())) {
         message_ = "Could not load that city file.";
@@ -396,9 +399,7 @@ bool CitySession::load_city(const std::string &path)
     sound_enabled_ = sim.enableSound;
     save_path_ = path;
     ready_ = true;
-    if (message_.empty()) {
-        message_ = "Loaded a saved city.";
-    }
+    message_ = "Loaded a saved city.";
     notify();
     return true;
 }
@@ -459,14 +460,16 @@ bool CitySession::save_city_as(const std::string &path)
 
 void CitySession::tick()
 {
-    if (!ready_) {
+    if (!ready_ || simulation_paused_) {
         return;
     }
     // simTick() steps the simulation and does not cycle animated map
-    // tiles. Upstream Micropolis front ends call animateTiles() after
-    // each simTick() so traffic, fountains, and smokestacks advance.
+    // tiles. Traffic, fountains, and smokestacks advance on the same
+    // tick while the city is running. Pause (speed 0) leaves them still.
     engine_->sim.simTick();
-    engine_->sim.animateTiles();
+    if (speed_ != 0) {
+        engine_->sim.animateTiles();
+    }
 }
 
 void CitySession::use_tool(int engine_tool, int tile_x, int tile_y)
@@ -501,6 +504,33 @@ void CitySession::set_speed(int speed)
 int CitySession::speed() const
 {
     return speed_;
+}
+
+void CitySession::set_simulation_paused(bool paused)
+{
+    simulation_paused_ = paused;
+}
+
+bool CitySession::simulation_paused() const
+{
+    return simulation_paused_;
+}
+
+int CitySession::game_month_index() const
+{
+    const Micropolis &sim = engine_->sim;
+    int year = static_cast<int>(sim.cityYear);
+    if (year <= 0) {
+        year = static_cast<int>(sim.startingYear);
+    }
+    int month = static_cast<int>(sim.cityMonth);
+    if (month < 0) {
+        month = 0;
+    }
+    if (month > 11) {
+        month = 11;
+    }
+    return year * 12 + month;
 }
 
 void CitySession::set_auto_budget(bool on)
@@ -666,6 +696,11 @@ bool CitySession::take_budget_request()
     const bool requested = budget_requested_;
     budget_requested_ = false;
     return requested;
+}
+
+void CitySession::keep_budget_request()
+{
+    budget_requested_ = true;
 }
 
 void CitySession::commit_pending_budget()

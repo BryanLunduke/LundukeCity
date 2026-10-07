@@ -18,10 +18,13 @@ public:
 
     void set_session(CitySession *session);
     void present_report();
+    // Runs the preview when the game month changes. sync() only copies labels.
+    void note_month(int month_index);
     void sync();
 
 private:
     CitySession *session_ = nullptr;
+    int month_index_ = -1;
 
     Gtk::Box root_{Gtk::ORIENTATION_VERTICAL, 8};
     Gtk::Label heading_;
