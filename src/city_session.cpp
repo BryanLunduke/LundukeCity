@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cstdarg>
+#include <cstdio>
 #include <ctime>
 #include <fstream>
 #include <memory>
@@ -43,9 +44,11 @@ const char *kMonths[] = {
 
 Quad live_population_count(const Micropolis &sim)
 {
-    return (static_cast<Quad>(sim.resPop) +
-            (static_cast<Quad>(sim.comPop) + static_cast<Quad>(sim.indPop)) * 8L) *
-           20L;
+    // Phase 0 clears the live counts. The snapshot is the last finished scan.
+    const short res = sim.censusSnapshotValid ? sim.snapResPop : sim.resPop;
+    const short com = sim.censusSnapshotValid ? sim.snapComPop : sim.comPop;
+    const short ind = sim.censusSnapshotValid ? sim.snapIndPop : sim.indPop;
+    return (static_cast<Quad>(res) + (static_cast<Quad>(com) + static_cast<Quad>(ind)) * 8L) * 20L;
 }
 
 CityClass live_city_class(Quad population)
@@ -146,6 +149,33 @@ struct CitySession::Engine {
     Micropolis sim;
 };
 
+int hostile_review_session_probe(CitySession &session, int op)
+{
+    Micropolis &sim = session.engine_->sim;
+    if (op == 1) {
+        sim.budgetAwaitingAccept = true;
+        return 0;
+    }
+    if (op == 2) {
+        // A finished census, and the next simulator step is phase 0.
+        sim.resPop = 40;
+        sim.comPop = 2;
+        sim.indPop = 1;
+        sim.censusSnapshotValid = false;
+        sim.liveCensusComplete = true;
+        sim.phaseCycle = 0;
+        sim.setSpeed(3);
+        return 0;
+    }
+    sim.cityAssessedValue = 424242;
+    const bool ran = session.note_evaluation_month(session.game_month_index() + 50);
+    if (ran || sim.cityAssessedValue != 424242) {
+        std::fprintf(stderr, "ran %d assessed %ld\n", ran ? 1 : 0, static_cast<long>(sim.cityAssessedValue));
+        return 1;
+    }
+    return 0;
+}
+
 CitySession::CitySession()
     : engine_(new Engine)
 {
@@ -182,6 +212,18 @@ void CitySession::notify()
 
 void CitySession::on_callback(const char *name, const char *params, va_list args)
 {
+    struct CallbackGuard {
+        bool &flag;
+        bool outer;
+        explicit CallbackGuard(bool &flag) : flag(flag), outer(!flag) { flag = true; }
+        ~CallbackGuard()
+        {
+            if (outer) {
+                flag = false;
+            }
+        }
+    } guard(in_callback_);
+
     const std::string which = name != nullptr ? name : "";
 
     auto take_string = [&]() -> const char * {
@@ -303,6 +345,8 @@ void CitySession::new_city(const NewCitySpec &spec)
 {
     ready_ = false;
     Micropolis &sim = engine_->sim;
+    // A budget window left open must not charge this city when it closes.
+    sim.budgetAwaitingAccept = false;
     // Micropolis::init() (called from the constructor) already ran simInit().
     // simInit() is private and reallocates history buffers, so a new city
     // sets the terrain knobs, lets generateSomeCity() rebuild the map, then
@@ -334,8 +378,16 @@ void CitySession::new_city(const NewCitySpec &spec)
     sim.setEnableSound(sound_enabled_);
     // A new city follows disasters. A loaded city keeps the flag in the file.
     sim.setAutoGoto(true);
+    // The last city's road, police, and fire rates must not bill this map.
+    sim.budgetAwaitingAccept = false;
+    sim.initFundingLevel();
+    sim.updateFundEffects();
+    sim.evalPreviewValid = false;
     save_path_.clear();
     message_.clear();
+    dirty_ = false;
+    eval_month_ = -1;
+    eval_month_pending_ = false;
     ready_ = true;
     notify();
 }
@@ -367,7 +419,12 @@ void CitySession::rename_city(const std::string &name)
     if (clean.empty()) {
         return;
     }
+    const std::string before = engine_->sim.cityName;
     engine_->sim.setCleanCityName(clean);
+    if (engine_->sim.cityName == before) {
+        return;
+    }
+    dirty_ = true;
     notify();
 }
 
@@ -397,8 +454,13 @@ bool CitySession::load_city(const std::string &path)
     }
     sim.setSpeed(static_cast<short>(speed_));
     sound_enabled_ = sim.enableSound;
+    sim.budgetAwaitingAccept = false;
+    sim.evalPreviewValid = false;
     save_path_ = path;
     ready_ = true;
+    dirty_ = false;
+    eval_month_ = -1;
+    eval_month_pending_ = false;
     message_ = "Loaded a saved city.";
     notify();
     return true;
@@ -433,12 +495,26 @@ bool CitySession::load_scenario(int id)
 
     Micropolis &sim = engine_->sim;
     // loadScenario() reads snro.* from resourceDir via loadFileDir().
+    // A failed second open must keep the city that is already loaded.
+    const std::string previous_name = sim.cityName;
     sim.resourceDir = dir;
-    sim.loadScenario(static_cast<Scenario>(id));
+    if (!sim.loadScenario(static_cast<Scenario>(id))) {
+        message_ = "Could not start that scenario.";
+        notify();
+        return false;
+    }
+    if (sim.cityName.empty()) {
+        sim.setCleanCityName(previous_name);
+    }
+    sim.budgetAwaitingAccept = false;
+    sim.evalPreviewValid = false;
     sim.setSpeed(static_cast<short>(speed_));
     sim.setEnableSound(sound_enabled_);
     save_path_.clear();
     ready_ = true;
+    dirty_ = false;
+    eval_month_ = -1;
+    eval_month_pending_ = false;
     message_ = std::string("Playing ") + entry->def.name + ".";
     notify();
     return true;
@@ -453,6 +529,7 @@ bool CitySession::save_city_as(const std::string &path)
         return false;
     }
     save_path_ = path;
+    dirty_ = false;
     message_ = "City saved.";
     notify();
     return true;
@@ -479,6 +556,9 @@ void CitySession::use_tool(int engine_tool, int tile_x, int tile_y)
     }
     engine_->sim.toolDown(static_cast<EditingTool>(engine_tool),
                           static_cast<short>(tile_x), static_cast<short>(tile_y));
+    if (engine_tool != TOOL_QUERY) {
+        dirty_ = true;
+    }
     notify();
 }
 
@@ -490,6 +570,9 @@ void CitySession::drag_tool(int engine_tool, int from_x, int from_y, int to_x, i
     engine_->sim.toolDrag(static_cast<EditingTool>(engine_tool),
                           static_cast<short>(from_x), static_cast<short>(from_y),
                           static_cast<short>(to_x), static_cast<short>(to_y));
+    if (engine_tool != TOOL_QUERY) {
+        dirty_ = true;
+    }
     notify();
 }
 
@@ -599,21 +682,15 @@ void CitySession::set_service_funding(int kind, int percent)
     }
     const float fraction = static_cast<float>(percent) / 100.0f;
     Micropolis &sim = engine_->sim;
-    Quad *fund = &sim.roadFund;
     float *slot = &sim.roadPercent;
-    Quad *spend = &sim.roadSpend;
     if (kind == 1) {
-        fund = &sim.policeFund;
         slot = &sim.policePercent;
-        spend = &sim.policeSpend;
     } else if (kind == 2) {
-        fund = &sim.fireFund;
         slot = &sim.firePercent;
-        spend = &sim.fireSpend;
     }
+    // Effects wait until the budget window commits. Moving a slider used
+    // to drop road and coverage before any money moved.
     *slot = fraction;
-    *spend = static_cast<Quad>(*fund * fraction);
-    sim.updateFundEffects();
 }
 
 void CitySession::set_road_funding(int percent)
@@ -705,7 +782,63 @@ void CitySession::keep_budget_request()
 
 void CitySession::commit_pending_budget()
 {
+    if (engine_->sim.budgetAwaitingAccept) {
+        dirty_ = true;
+    }
     engine_->sim.commitBudgetPayment();
+}
+
+bool CitySession::budget_pending() const
+{
+    return engine_->sim.budgetAwaitingAccept;
+}
+
+void CitySession::discard_pending_budget()
+{
+    engine_->sim.budgetAwaitingAccept = false;
+}
+
+void CitySession::finish_budget_edit()
+{
+    if (engine_->sim.budgetAwaitingAccept) {
+        commit_pending_budget();
+        return;
+    }
+    engine_->sim.updateFundEffects();
+}
+
+bool CitySession::census_ready() const
+{
+    return engine_->sim.liveCensusComplete;
+}
+
+bool CitySession::note_evaluation_month(int month_index)
+{
+    if (month_index != eval_month_) {
+        eval_month_pending_ = true;
+    }
+    // Phase 0 publishes the new month and clears the census in the same
+    // tick. Wait until the scan has filled the counts again.
+    if (in_callback_ || !census_ready()) {
+        return false;
+    }
+    if (!eval_month_pending_) {
+        return false;
+    }
+    eval_month_ = month_index;
+    eval_month_pending_ = false;
+    engine_->sim.cityEvaluationPreview();
+    return true;
+}
+
+long CitySession::stored_assessed_value() const
+{
+    return static_cast<long>(engine_->sim.cityAssessedValue);
+}
+
+bool CitySession::needs_save_prompt() const
+{
+    return dirty_ || budget_pending();
 }
 
 bool CitySession::take_view_target(int &tile_x, int &tile_y)
@@ -816,36 +949,42 @@ bool CitySession::stamp_neighborhood(int &origin_x, int &origin_y)
 void CitySession::disaster_fire()
 {
     engine_->sim.makeFire();
+    dirty_ = true;
     notify();
 }
 
 void CitySession::disaster_flood()
 {
     engine_->sim.makeFlood();
+    dirty_ = true;
     notify();
 }
 
 void CitySession::disaster_tornado()
 {
     engine_->sim.makeTornado();
+    dirty_ = true;
     notify();
 }
 
 void CitySession::disaster_earthquake()
 {
     engine_->sim.makeEarthquake();
+    dirty_ = true;
     notify();
 }
 
 void CitySession::disaster_monster()
 {
     engine_->sim.makeMonster();
+    dirty_ = true;
     notify();
 }
 
 void CitySession::disaster_meltdown()
 {
     engine_->sim.makeMeltdown();
+    dirty_ = true;
     notify();
 }
 
@@ -897,7 +1036,13 @@ int CitySession::history_value(HistorySeries series, HistoryScale scale, int ind
 void CitySession::update_evaluation()
 {
     // Preview fills problems and opinion for the window. Population,
-    // migration, and score stay on the tax-year pass.
+    // migration, and score stay on the tax-year pass. Skip the pass while
+    // phase 0 has cleared the census, and while an engine callback is
+    // still on the stack.
+    if (in_callback_ || !census_ready()) {
+        eval_month_pending_ = true;
+        return;
+    }
     engine_->sim.cityEvaluationPreview();
 }
 
@@ -907,7 +1052,7 @@ CitySession::Evaluation CitySession::evaluation() const
     Evaluation report;
     report.score = sim.cityScore;
     report.score_delta = sim.cityScoreDelta;
-    report.yes_percent = sim.cityYes;
+    report.yes_percent = sim.evalPreviewValid ? sim.evalPreviewYes : sim.cityYes;
     if (report.yes_percent < 0) {
         report.yes_percent = 0;
     }
@@ -918,7 +1063,7 @@ CitySession::Evaluation CitySession::evaluation() const
     report.population = live_population < 0 ? 0 : static_cast<long>(live_population);
     // cityPopDelta is the last tax year. A mid-year preview does not replace it.
     report.migration = static_cast<long>(sim.cityPopDelta);
-    report.assessed_value = static_cast<long>(sim.cityAssessedValue);
+    report.assessed_value = static_cast<long>(sim.evalPreviewValid ? sim.evalPreviewAssessed : sim.cityAssessedValue);
     report.category = city_class_name(live_city_class(live_population < 0 ? 0 : live_population));
     report.year = static_cast<int>(sim.cityYear > 0 ? sim.cityYear : sim.startingYear);
     switch (sim.gameLevel) {
@@ -938,13 +1083,14 @@ CitySession::Evaluation CitySession::evaluation() const
         "Crime", "Pollution", "Housing", "Taxes", "Traffic", "Unemployment", "Fire",
     };
     for (int i = 0; i < CVP_PROBLEM_COMPLAINTS; ++i) {
-        const int which = sim.problemOrder[i];
+        const int which = sim.evalPreviewValid ? sim.evalPreviewOrder[i] : sim.problemOrder[i];
         if (which < 0 || which >= CVP_NUMPROBLEMS) {
             break;
         }
         Problem problem;
         problem.name = kProblems[which];
-        problem.votes = sim.problemVotes[which];
+        const int votes = sim.evalPreviewValid ? sim.evalPreviewVotes[which] : sim.problemVotes[which];
+        problem.votes = votes;
         if (problem.votes < 0) {
             problem.votes = 0;
         }

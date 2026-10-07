@@ -502,6 +502,32 @@ bool MapView::on_leave_notify_event(GdkEventCrossing *)
 bool MapView::on_key_press_event(GdkEventKey *event)
 {
     if (event != nullptr) {
+        if (event->keyval == GDK_KEY_space) {
+            signal_pause_toggle.emit();
+            return true;
+        }
+        int pan_x = 0;
+        int pan_y = 0;
+        switch (event->keyval) {
+        case GDK_KEY_Left:
+            pan_x = -1;
+            break;
+        case GDK_KEY_Right:
+            pan_x = 1;
+            break;
+        case GDK_KEY_Up:
+            pan_y = -1;
+            break;
+        case GDK_KEY_Down:
+            pan_y = 1;
+            break;
+        default:
+            break;
+        }
+        if (pan_x != 0 || pan_y != 0) {
+            signal_pan.emit(pan_x, pan_y);
+            return true;
+        }
         // The window also binds these keys. This path covers a key event
         // delivered straight to the focused map (Ctrl+= and Ctrl+-).
         const ZoomAction action = zoom_action(event->keyval, event->state);

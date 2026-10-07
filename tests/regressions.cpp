@@ -5,15 +5,22 @@
 // Headless checks for the 0.8-2 fixes: query wording, save/load, budget
 // timing, evaluation, disasters' view target, and sprite cleanup.
 
+#include "city_seed.hpp"
 #include "city_session.hpp"
 #include "messages.hpp"
+#include "save_path.hpp"
+#include "sound_player.hpp"
 
 #include "micropolis.h"
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <string>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <vector>
 
 namespace {
@@ -389,6 +396,413 @@ static int test_view_and_sprites()
     return 0;
 }
 
+static std::vector<char> read_bytes(const std::string &path)
+{
+    std::ifstream in(path, std::ios::binary);
+    return std::vector<char>((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+}
+
+static int count_wood(const Micropolis &sim)
+{
+    int woods = 0;
+    for (int y = 0; y < WORLD_H; ++y) {
+        for (int x = 0; x < WORLD_W; ++x) {
+            const int tile = sim.map[x][y] & LOMASK;
+            if (tile >= WOODS_LOW && tile <= WOODS5) {
+                ++woods;
+            }
+        }
+    }
+    return woods;
+}
+
+static void write_pcm_wav(const std::string &path, int frames)
+{
+    const int data_bytes = frames * 2;
+    const int riff = 36 + data_bytes;
+    std::vector<unsigned char> bytes(static_cast<std::size_t>(44 + data_bytes), 0);
+    std::memcpy(bytes.data(), "RIFF", 4);
+    bytes[4] = static_cast<unsigned char>(riff & 0xff);
+    bytes[5] = static_cast<unsigned char>((riff >> 8) & 0xff);
+    bytes[6] = static_cast<unsigned char>((riff >> 16) & 0xff);
+    bytes[7] = static_cast<unsigned char>((riff >> 24) & 0xff);
+    std::memcpy(bytes.data() + 8, "WAVE", 4);
+    std::memcpy(bytes.data() + 12, "fmt ", 4);
+    bytes[16] = 16;
+    bytes[20] = 1;
+    bytes[22] = 1;
+    bytes[24] = 22050 & 0xff;
+    bytes[25] = (22050 >> 8) & 0xff;
+    bytes[34] = 16;
+    std::memcpy(bytes.data() + 36, "data", 4);
+    bytes[40] = static_cast<unsigned char>(data_bytes & 0xff);
+    bytes[41] = static_cast<unsigned char>((data_bytes >> 8) & 0xff);
+    bytes[42] = static_cast<unsigned char>((data_bytes >> 16) & 0xff);
+    bytes[43] = static_cast<unsigned char>((data_bytes >> 24) & 0xff);
+    std::ofstream out(path, std::ios::binary);
+    out.write(reinterpret_cast<const char *>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+}
+
+static int test_hostile_review()
+{
+    CitySession census;
+    census.new_city("Census", 11);
+    if (hostile_review_session_probe(census, 2) != 0) {
+        return fail(50, "could not stage a finished census");
+    }
+    const long settled = census.evaluation().population;
+    if (settled <= 0) {
+        std::fprintf(stderr, "settled population %ld\n", settled);
+        return fail(51, "a finished census did not report the neighborhood");
+    }
+    census.tick();
+    if (census.census_ready() || census.evaluation().population != settled) {
+        std::fprintf(stderr, "ready %d pop %ld settled %ld\n", census.census_ready() ? 1 : 0,
+                     census.evaluation().population, settled);
+        return fail(52, "population dropped when phase 0 cleared the census");
+    }
+    if (hostile_review_session_probe(census, 0) != 0) {
+        return fail(53, "note_month at a month boundary stored the cleared census");
+    }
+
+    Micropolis preview;
+    preview.resPop = 200;
+    preview.comPop = 10;
+    preview.indPop = 10;
+    preview.totalPop = 40;
+    preview.cityPop = 1000;
+    preview.cityPopDelta = 10;
+    preview.cityScore = 500;
+    preview.cityAssessedValue = 80;
+    const UQuad random_before = preview.randomState();
+    preview.cityEvaluationPreview();
+    if (preview.randomState() != random_before || preview.cityPop != 1000 || preview.cityScore != 500 ||
+        preview.cityAssessedValue != 80 || !preview.evalPreviewValid) {
+        return fail(54, "evaluation preview advanced the RNG or kept fields it writes");
+    }
+
+    Micropolis tax_year;
+    tax_year.generateSomeCity(8);
+    tax_year.autoBudget = false;
+    tax_year.taxFund = 2000;
+    tax_year.roadFund = 500;
+    tax_year.policeFund = 0;
+    tax_year.fireFund = 0;
+    tax_year.roadPercent = 1.0f;
+    tax_year.policePercent = 0.0f;
+    tax_year.firePercent = 0.0f;
+    tax_year.setFunds(5000);
+    tax_year.doBudgetNow(false);
+    if (!tax_year.budgetAwaitingAccept || static_cast<long>(tax_year.totalFunds) != 5000) {
+        return fail(55, "the tax year was not waiting on the budget window");
+    }
+    const std::string tax_path = "/tmp/lunduke-tax-year.cty";
+    tax_year.saveCityAs(tax_path.c_str());
+    Micropolis tax_loaded;
+    if (tax_year.budgetAwaitingAccept || !tax_loaded.loadCity(tax_path.c_str()) ||
+        static_cast<long>(tax_loaded.totalFunds) != 6500) {
+        std::fprintf(stderr, "loaded funds %ld awaiting %d\n", static_cast<long>(tax_loaded.totalFunds),
+                     tax_year.budgetAwaitingAccept ? 1 : 0);
+        return fail(56, "saving a waiting tax year dropped that year's cash flow");
+    }
+    std::remove(tax_path.c_str());
+
+    CitySession funded;
+    funded.new_city("Rates", 3);
+    funded.set_road_funding(0);
+    funded.set_police_funding(0);
+    funded.set_fire_funding(0);
+    hostile_review_session_probe(funded, 1);
+    funded.new_city("Rates Two", 4);
+    const CitySession::BudgetBook reset = funded.budget();
+    if (reset.road_percent != 100 || reset.police_percent != 100 || reset.fire_percent != 100 ||
+        funded.budget_pending()) {
+        std::fprintf(stderr, "funding %d %d %d pending %d\n", reset.road_percent, reset.police_percent,
+                     reset.fire_percent, funded.budget_pending() ? 1 : 0);
+        return fail(57, "new city kept the previous funding rates");
+    }
+
+    Micropolis broke;
+    broke.generateSomeCity(2);
+    broke.autoBudget = false;
+    broke.taxFund = 1000;
+    broke.roadFund = 5000;
+    broke.policeFund = 0;
+    broke.fireFund = 0;
+    broke.roadPercent = 1.0f;
+    broke.policePercent = 1.0f;
+    broke.firePercent = 1.0f;
+    broke.setFunds(100);
+    broke.doBudgetNow(false);
+    broke.roadPercent = 1.0f;
+    broke.policePercent = 1.0f;
+    broke.firePercent = 1.0f;
+    broke.commitBudgetPayment();
+    if (broke.totalFunds < 0) {
+        std::fprintf(stderr, "funds %ld\n", static_cast<long>(broke.totalFunds));
+        return fail(58, "accepting the budget spent cash the city does not have");
+    }
+
+    int island_seed = -1;
+    for (int s = 0; s < 4000 && island_seed < 0; ++s) {
+        Micropolis probe;
+        probe.primeRandom(s);
+        if (probe.rollRandom(100) < 10) {
+            island_seed = s;
+        }
+    }
+    if (island_seed < 0) {
+        return fail(59, "no seed rolled an island");
+    }
+    Micropolis island;
+    island.terrainCreateIsland = -1;
+    island.terrainCurveLevel = 0;
+    island.terrainLakeLevel = 0;
+    island.terrainTreeLevel = 0;
+    island.generateMap(island_seed);
+    int edge_water = 0;
+    for (int y = 0; y < WORLD_H; ++y) {
+        for (int x = 0; x < WORLD_W; ++x) {
+            if (x >= 5 && x < WORLD_W - 5 && y >= 5 && y < WORLD_H - 5) {
+                continue;
+            }
+            const int tile = island.map[x][y] & LOMASK;
+            if ((tile >= RIVER && tile <= WATER_HIGH) || tile == REDGE) {
+                ++edge_water;
+            }
+        }
+    }
+    if (count_wood(island) != 0 || edge_water < 100) {
+        std::fprintf(stderr, "woods %d edge %d seed %d\n", count_wood(island), edge_water, island_seed);
+        return fail(60, "the default island ignored no-trees or was not an island");
+    }
+
+    Micropolis kept;
+    kept.generateSomeCity(6);
+    kept.setCleanCityName("Keep Name");
+    const std::string atomic = "/tmp/lunduke-atomic.cty";
+    kept.saveCityAs(atomic.c_str());
+    const std::vector<char> previous = read_bytes(atomic);
+    if (previous.size() < 27120) {
+        return fail(61, "atomic-save fixture was not a city file");
+    }
+    const std::string tmp_dir = atomic + ".tmp";
+    if (mkdir(tmp_dir.c_str(), 0755) != 0) {
+        return fail(62, "could not block the save temporary file");
+    }
+    kept.cityFileName = "keep-me";
+    const short map_guard = kept.map[1][1];
+    if (kept.saveCityAs(atomic.c_str()) || kept.cityFileName != "keep-me" || kept.map[1][1] != map_guard ||
+        read_bytes(atomic) != previous) {
+        rmdir(tmp_dir.c_str());
+        return fail(63, "a failed save replaced the previous city file or the engine path");
+    }
+    rmdir(tmp_dir.c_str());
+    const std::string link = "/tmp/lunduke-atomic-link.cty";
+    std::remove(link.c_str());
+    if (symlink(atomic.c_str(), link.c_str()) != 0 || kept.saveFile(link.c_str()) || read_bytes(atomic) != previous) {
+        std::remove(link.c_str());
+        return fail(64, "save followed a symlink and changed the target");
+    }
+    std::remove(link.c_str());
+    std::remove(atomic.c_str());
+
+    if (with_cty_suffix("Town") != "Town.cty" || with_cty_suffix("Town.CTY") != "Town.CTY" ||
+        with_cty_suffix("notes.cty.bak") != "notes.cty.bak.cty" ||
+        with_cty_suffix("/tmp/Town.cty") != "/tmp/Town.cty") {
+        return fail(65, "the save path was not the confirmed name plus a .cty suffix");
+    }
+
+    int seed = 99;
+    bool seed_was_set = true;
+    if (take_city_seed("12a", seed, seed_was_set) || !seed_was_set || seed != 99) {
+        return fail(66, "a seed typo was treated as a clock seed");
+    }
+    if (!take_city_seed("12", seed, seed_was_set) || !seed_was_set || seed != 12) {
+        return fail(67, "a whole-number seed was rejected");
+    }
+
+    Micropolis named;
+    named.generateSomeCity(4);
+    named.setCleanCityName("Harbor");
+    named.resourceDir = "/tmp/lunduke-missing-scenarios";
+    if (named.loadScenario(SC_HAMBURG) || named.cityName != "Harbor") {
+        std::fprintf(stderr, "scenario name '%s'\n", named.cityName.c_str());
+        return fail(68, "a failed scenario load did not keep the previous city");
+    }
+    CitySession playing;
+    playing.new_city("Harbor", 4);
+    if (playing.load_scenario(99) || playing.city_name() != "Harbor") {
+        return fail(69, "load_scenario reported success or renamed the city");
+    }
+
+    Micropolis flow;
+    flow.generateSomeCity(1);
+    flow.totalPop = 20000;
+    flow.landValueAverage = 120;
+    flow.cityTax = 10;
+    flow.gameLevel = LEVEL_EASY;
+    flow.roadTotal = 0;
+    flow.railTotal = 0;
+    flow.policeStationPop = 0;
+    flow.fireStationPop = 0;
+    flow.taxFlag = false;
+    flow.autoBudget = true;
+    flow.setFunds(5000000);
+    flow.collectTax();
+    const Quad expected = flow.taxFund - (flow.policeFund + flow.fireFund + flow.roadFund);
+    if (flow.cashFlow != expected || expected <= 32767) {
+        std::fprintf(stderr, "cash %ld expected %ld\n", static_cast<long>(flow.cashFlow),
+                     static_cast<long>(expected));
+        return fail(70, "cash flow was truncated to 16 bits");
+    }
+
+    Micropolis titled;
+    titled.generateSomeCity(1);
+    const std::string evil_path = "/tmp/lunduke-evil-name.cty";
+    titled.setCleanCityName("Plain");
+    titled.saveCityAs(evil_path.c_str());
+    std::vector<char> classic = read_bytes(evil_path);
+    if (classic.size() < 27120) {
+        return fail(71, "could not build a city file for the name filter");
+    }
+    classic.resize(27120);
+    const std::string evil = std::string("Line\nOne") + "\xE2\x80\xAE";
+    classic.push_back('L');
+    classic.push_back('C');
+    classic.push_back('N');
+    classic.push_back('1');
+    classic.push_back(static_cast<char>(evil.size() & 0xff));
+    classic.push_back(static_cast<char>((evil.size() >> 8) & 0xff));
+    classic.insert(classic.end(), evil.begin(), evil.end());
+    {
+        std::ofstream out(evil_path, std::ios::binary);
+        out.write(classic.data(), static_cast<std::streamsize>(classic.size()));
+    }
+    Micropolis filtered;
+    if (!filtered.loadCity(evil_path.c_str()) || filtered.cityName != "LineOne" ||
+        filtered.cityName.find('\n') != std::string::npos) {
+        std::fprintf(stderr, "filtered name '%s'\n", filtered.cityName.c_str());
+        return fail(72, "a loaded city name skipped the rename filter");
+    }
+    std::remove(evil_path.c_str());
+
+    CitySession dirty;
+    dirty.new_city("Dirty", 5);
+    if (dirty.needs_save_prompt()) {
+        return fail(73, "a fresh city asked to be saved");
+    }
+    bool laid = false;
+    for (int y = 2; y < CitySession::kWorldH - 2 && !laid; ++y) {
+        for (int x = 2; x < CitySession::kWorldW - 2; ++x) {
+            if ((dirty.map_value(x, y) & LOMASK) == DIRT) {
+                dirty.use_tool(TOOL_ROAD, x, y);
+                laid = true;
+                break;
+            }
+        }
+    }
+    if (!laid || !dirty.needs_save_prompt()) {
+        return fail(74, "laying a road did not mark the city unsaved");
+    }
+    const std::string dirty_path = "/tmp/lunduke-dirty.cty";
+    if (!dirty.save_city_as(dirty_path) || dirty.needs_save_prompt()) {
+        return fail(75, "a successful save left the city dirty");
+    }
+    dirty.new_city("Clean", 6);
+    if (dirty.needs_save_prompt()) {
+        return fail(76, "generating a city kept the previous dirty bit");
+    }
+    std::remove(dirty_path.c_str());
+
+    const std::string sound_dir = "/tmp/lunduke-sounds";
+    mkdir(sound_dir.c_str(), 0755);
+    const std::string small_wav = sound_dir + "/siren.wav";
+    const std::string large_wav = sound_dir + "/Siren.wav";
+    const std::string huge_wav = sound_dir + "/huge.wav";
+    const std::string linked = sound_dir + "/linked.wav";
+    write_pcm_wav(small_wav, 8);
+    write_pcm_wav(large_wav, 40);
+    {
+        std::ofstream huge(huge_wav, std::ios::binary);
+        std::vector<char> chunk(1024 * 1024, '\0');
+        huge.write(chunk.data(), static_cast<std::streamsize>(chunk.size()));
+        huge.write(chunk.data(), static_cast<std::streamsize>(chunk.size()));
+        huge.write(chunk.data(), 64);
+    }
+    std::remove(linked.c_str());
+    symlink(small_wav.c_str(), linked.c_str());
+    if (preview_wav_file(huge_wav) || preview_wav_file(linked) || !preview_wav_file(small_wav)) {
+        return fail(77, "wav decode did not reject an oversized file or a symlink");
+    }
+    const auto indexed = index_sound_directory(sound_dir);
+    std::string first;
+    std::error_code index_ec;
+    for (const auto &entry : std::filesystem::directory_iterator(sound_dir, index_ec)) {
+        if (index_ec || entry.symlink_status().type() != std::filesystem::file_type::regular) {
+            continue;
+        }
+        const auto name = entry.path().filename().string();
+        if (name.size() < 5 || name.substr(name.size() - 4) != ".wav") {
+            continue;
+        }
+        if (entry.file_size() > kMaxWavBytes) {
+            continue;
+        }
+        std::string key;
+        for (unsigned char ch : name.substr(0, name.size() - 4)) {
+            if (ch == '.' || ch == '-' || ch == '_' || ch == ' ') {
+                continue;
+            }
+            if (ch >= 'A' && ch <= 'Z') {
+                ch = static_cast<unsigned char>(ch - 'A' + 'a');
+            }
+            key.push_back(static_cast<char>(ch));
+        }
+        if (key == "siren") {
+            first = entry.path().string();
+            break;
+        }
+    }
+    const auto found = indexed.find("siren");
+    if (first.empty() || found == indexed.end() || found->second != first || indexed.count("linked") != 0 ||
+        indexed.count("huge") != 0 || kMaxQueuedSounds > 32) {
+        std::fprintf(stderr, "first '%s'\n", first.c_str());
+        return fail(78, "the sound index followed a symlink or kept the larger clip");
+    }
+    std::remove(small_wav.c_str());
+    std::remove(large_wav.c_str());
+    std::remove(huge_wav.c_str());
+    std::remove(linked.c_str());
+    rmdir(sound_dir.c_str());
+
+    auto sprite_steps = [](int speed) {
+        Micropolis sim;
+        sim.generateSomeCity(2);
+        sim.setSpeed(static_cast<short>(speed));
+        sim.makeTornado();
+        SimSprite *sprite = sim.getSprite(SPRITE_TORNADO);
+        if (sprite == nullptr) {
+            return -1;
+        }
+        const int start = sprite->count;
+        // A random birth spot can walk off the map before the count is read.
+        sprite->x = (WORLD_W << 4) / 2;
+        sprite->y = (WORLD_H << 4) / 2;
+        for (int i = 0; i < 30; ++i) {
+            sim.simTick();
+        }
+        return start - sprite->count;
+    };
+    const int slow_steps = sprite_steps(1);
+    const int fast_steps = sprite_steps(3);
+    if (slow_steps < 0 || fast_steps < 20 || slow_steps >= fast_steps || slow_steps > 12) {
+        std::fprintf(stderr, "sprite steps slow %d fast %d\n", slow_steps, fast_steps);
+        return fail(79, "slow speed did not slow sprites with the simulator");
+    }
+    return 0;
+}
+
 int main()
 {
     if (const int code = test_query_words()) {
@@ -404,6 +818,9 @@ int main()
         return code;
     }
     if (const int code = test_view_and_sprites()) {
+        return code;
+    }
+    if (const int code = test_hostile_review()) {
         return code;
     }
     return 0;

@@ -122,15 +122,18 @@ void Micropolis::generateMap(int seed)
 
     seedRandom(seed);
 
-    // Construct land.
+    // Construct land. The 1-in-10 island used to return before rivers,
+    // lakes, and the tree level were applied.
+    bool island = false;
     if (terrainCreateIsland < 0) {
         if (getRandom(100) < 10) { /* chance that island is generated */
-            makeIsland();
-            return;
+            island = true;
         }
+    } else if (terrainCreateIsland == 1) {
+        island = true;
     }
 
-    if (terrainCreateIsland == 1) {
+    if (island) {
         makeNakedIsland();
     } else {
         clearMap();
@@ -295,11 +298,16 @@ void Micropolis::makeSingleLake(const Position &pos)
  * @param xloc Horizontal position of starting point for splashing trees.
  * @param yloc Vertical position of starting point for splashing trees.
  * @note Trees are not smoothed.
- * @bug Function generates trees even if Micropolis::terrainTreeLevel is 0.
+ * @note Micropolis::terrainTreeLevel 0 plants nothing.
  */
 void Micropolis::treeSplash(short xloc, short yloc)
 {
     short numTrees;
+
+    // Level 0 is "no trees". Only a negative level asks for a random splash.
+    if (terrainTreeLevel == 0) {
+        return;
+    }
 
     if (terrainTreeLevel < 0) {
         numTrees = getRandom(150) + 50;
@@ -330,6 +338,11 @@ void Micropolis::treeSplash(short xloc, short yloc)
 void Micropolis::doTrees()
 {
     short Amount, x, xloc, yloc;
+
+    // Level 0 is off. The old formula used level + 3, so "no trees" still planted.
+    if (terrainTreeLevel == 0) {
+        return;
+    }
 
     if (terrainTreeLevel < 0) {
         Amount = getRandom(100) + 50;

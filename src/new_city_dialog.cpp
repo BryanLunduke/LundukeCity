@@ -171,7 +171,15 @@ bool run_new_city_wizard(Gtk::Window &parent, CitySession::NewCitySpec &spec, co
     seed->set_placeholder_text("auto");
     seed->set_width_chars(16);
     Gtk::Box seed_box(Gtk::ORIENTATION_VERTICAL, 4);
+    auto *seed_error = Gtk::manage(new Gtk::Label("Enter a whole number, or leave the field blank."));
+    seed_error->set_halign(Gtk::ALIGN_START);
+    seed_error->set_xalign(0);
+    seed_error->set_line_wrap(true);
+    seed_error->set_max_width_chars(48);
+    seed_error->set_no_show_all(true);
+    seed_error->hide();
     seed_box.pack_start(*seed, Gtk::PACK_SHRINK);
+    seed_box.pack_start(*seed_error, Gtk::PACK_SHRINK);
     seed_box.pack_start(*note("Leave blank, or type auto, to take a seed from the clock. "
                               "Any other whole number, including 0, is the map seed."),
                         Gtk::PACK_SHRINK);
@@ -286,6 +294,19 @@ bool run_new_city_wizard(Gtk::Window &parent, CitySession::NewCitySpec &spec, co
         return "Generator default";
     };
 
+    auto seed_accepted = [&] {
+        int parsed_seed = 0;
+        bool seed_was_set = true;
+        if (!take_city_seed(seed->get_text(), parsed_seed, seed_was_set)) {
+            seed_error->show();
+            seed->set_icon_from_icon_name("dialog-warning", Gtk::ENTRY_ICON_SECONDARY);
+            seed->grab_focus();
+            return false;
+        }
+        seed_error->hide();
+        seed->unset_icon(Gtk::ENTRY_ICON_SECONDARY);
+        return true;
+    };
     auto fill_spec = [&] {
         spec = CitySession::NewCitySpec{};
         spec.name = name_entry->get_text();
@@ -294,17 +315,17 @@ bool run_new_city_wizard(Gtk::Window &parent, CitySession::NewCitySpec &spec, co
         spec.rivers = chosen_rivers();
         spec.lakes = chosen_lakes();
         spec.trees = chosen_trees();
-        CitySeedParse parsed;
-        if (!parse_city_seed(seed->get_text(), parsed) || parsed.from_clock) {
-            spec.seed = 0;
-            spec.seed_was_set = false;
-        } else {
-            spec.seed = parsed.value;
-            spec.seed_was_set = true;
+        // A typo must not become a clock seed. seed_accepted() already
+        // blocked Next and Generate; this is the same rule.
+        if (!take_city_seed(seed->get_text(), spec.seed, spec.seed_was_set)) {
+            return false;
         }
+        return true;
     };
     auto refresh_summary = [&] {
-        fill_spec();
+        if (!fill_spec()) {
+            return;
+        }
         std::string name = spec.name;
         if (name.empty()) {
             name = "New City";
@@ -337,10 +358,18 @@ bool run_new_city_wizard(Gtk::Window &parent, CitySession::NewCitySpec &spec, co
     };
 
     back->signal_clicked().connect([&] { show_page(page - 1); });
-    next->signal_clicked().connect([&] { show_page(page + 1); });
+    next->signal_clicked().connect([&] {
+        if (page == 1 && !seed_accepted()) {
+            return;
+        }
+        show_page(page + 1);
+    });
     cancel->signal_clicked().connect([&] { dialog.response(Gtk::RESPONSE_CANCEL); });
     generate->signal_clicked().connect([&] {
-        fill_spec();
+        if (!seed_accepted() || !fill_spec()) {
+            show_page(1);
+            return;
+        }
         dialog.response(Gtk::RESPONSE_OK);
     });
 

@@ -257,15 +257,82 @@ void Micropolis::setCityName(const std::string &name)
 }
 
 
+namespace {
+
+bool is_bidi_or_line_mark(unsigned char a, unsigned char b, unsigned char c)
+{
+    // U+200E, U+200F, U+2028, U+2029, U+202A..U+202E, U+2066..U+2069.
+    if (a != 0xE2) {
+        return false;
+    }
+    if (b == 0x80 && ((c >= 0x8E && c <= 0x8F) || (c >= 0xA8 && c <= 0xAE))) {
+        return true;
+    }
+    if (b == 0x81 && c >= 0xA6 && c <= 0xA9) {
+        return true;
+    }
+    return false;
+}
+
+// Same filter as Rename City: drop controls and bidi marks, collapse
+// whitespace, and stop at 48 characters. Loaded save names use this too.
+std::string sanitize_city_name(const std::string &name)
+{
+    std::string clean;
+    clean.reserve(name.size());
+    bool pending_space = false;
+    for (std::size_t i = 0; i < name.size();) {
+        const unsigned char ch = static_cast<unsigned char>(name[i]);
+        if (ch == 0xE2 && i + 2 < name.size() &&
+            is_bidi_or_line_mark(ch, static_cast<unsigned char>(name[i + 1]),
+                                 static_cast<unsigned char>(name[i + 2]))) {
+            i += 3;
+            continue;
+        }
+        if (ch == ' ' || ch == '\t') {
+            if (!clean.empty()) {
+                pending_space = true;
+            }
+            ++i;
+            continue;
+        }
+        if (ch < 32) {
+            ++i;
+            continue;
+        }
+        if (pending_space) {
+            clean.push_back(' ');
+            pending_space = false;
+        }
+        clean.push_back(static_cast<char>(ch));
+        if (clean.size() >= 48) {
+            break;
+        }
+        ++i;
+    }
+    return clean;
+}
+
+} // namespace
+
+
 /**
  * Set the name of the city.
  * @param name New name of the city.
  */
-void Micropolis::setCleanCityName(const std::string &name)
+bool Micropolis::setCleanCityName(const std::string &name)
 {
-    cityName = name;
+    const std::string clean = sanitize_city_name(name);
+    if (clean.empty()) {
+        return false;
+    }
+    if (clean == cityName) {
+        return true;
+    }
+    cityName = clean;
 
     callback("update", "s", "cityName");
+    return true;
 }
 
 

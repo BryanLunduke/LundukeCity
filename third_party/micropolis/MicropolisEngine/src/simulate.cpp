@@ -95,11 +95,11 @@ static const int TAX_FREQUENCY = 48;
 
 
 /* comefrom: doEditWindow scoreDoer doMapInFront graphDoer doNilEvent */
-void Micropolis::simFrame()
+bool Micropolis::simFrame()
 {
 
     if (simSpeed == 0) {
-        return;
+        return false;
     }
 
     if (++speedCycle > 1023) {
@@ -107,14 +107,15 @@ void Micropolis::simFrame()
     }
 
     if (simSpeed == 1 && (speedCycle % 5) != 0) {
-        return;
+        return false;
     }
 
     if (simSpeed == 2 && (speedCycle % 3) != 0) {
-        return;
+        return false;
     }
 
     simulate();
+    return true;
 }
 
 
@@ -164,6 +165,11 @@ void Micropolis::simulate()
                 setValves();
             }
 
+            // Keep the finished census for the UI, then wipe the live counts
+            // so phases 1..8 can scan the map again.
+            if (liveCensusComplete) {
+                captureCensusSnapshot();
+            }
             clearCensus();
 
             break;
@@ -179,6 +185,9 @@ void Micropolis::simulate()
 
             // Scan 1/8 of the map for each of the 8 phases 1..8:
             mapScan((phaseCycle - 1) * WORLD_W / 8, phaseCycle * WORLD_W / 8);
+            if (phaseCycle == 8) {
+                captureCensusSnapshot();
+            }
 
             break;
 
@@ -291,6 +300,7 @@ void Micropolis::doSimInit()
     setValves();
     clearCensus();
     mapScan(0, WORLD_W);
+    captureCensusSnapshot();
     doPowerScan();
     newPower = true;         /* post rel */
     pollutionTerrainLandValueScan();
@@ -592,7 +602,7 @@ void Micropolis::setValves()
 
     normalizedResPop = (float)resPop / (float)resPopDenom;
     totalPopLast = totalPop;
-    totalPop = (short)(normalizedResPop + comPop + indPop);
+    totalPop = (Quad)(normalizedResPop + (float)comPop + (float)indPop);
 
     if (resPop > 0) {
         employment = (comHist[1] + indHist[1]) / normalizedResPop;
@@ -700,6 +710,27 @@ void Micropolis::clearCensus()
     policeStationMap.clear();
     //policeStationEffectMap.clear(); // Added in rev293
 
+    liveCensusComplete = false;
+}
+
+
+void Micropolis::captureCensusSnapshot()
+{
+    snapResPop = resPop;
+    snapComPop = comPop;
+    snapIndPop = indPop;
+    snapRoadTotal = roadTotal;
+    snapRailTotal = railTotal;
+    snapPolicePop = policeStationPop;
+    snapFirePop = fireStationPop;
+    snapHospitalPop = hospitalPop;
+    snapStadiumPop = stadiumPop;
+    snapSeaportPop = seaportPop;
+    snapAirportPop = airportPop;
+    snapCoalPop = coalPowerPop;
+    snapNuclearPop = nuclearPowerPop;
+    censusSnapshotValid = true;
+    liveCensusComplete = true;
 }
 
 
@@ -750,8 +781,18 @@ void Micropolis::take10Census()
     pollutionRamp += (pollutionAverage - pollutionRamp) / 4;
     pollutionHist[0] = min(pollutionRamp, (short)255);
 
-    x = (cashFlow / 20) + 128;    /* scale to 0..255  */
-    moneyHist[0] = clamp(x, (short)0, (short)255);
+    // Saturate the history byte. cashFlow itself stays a full Quad.
+    {
+        const Quad scaled = (cashFlow / 20) + 128;
+        if (scaled <= 0) {
+            x = 0;
+        } else if (scaled >= 255) {
+            x = 255;
+        } else {
+            x = (short)scaled;
+        }
+    }
+    moneyHist[0] = x;
 
     changeCensus();
 
@@ -874,7 +915,7 @@ void Micropolis::collectTax()
 
         if (totalPop > 0) {
             /* There are people to tax. */
-            cashFlow = (short)(taxFund - (policeFund + fireFund + roadFund));
+            cashFlow = (Quad)taxFund - ((Quad)policeFund + (Quad)fireFund + (Quad)roadFund);
             doBudget();
         } else {
             /* Nobody lives here. */

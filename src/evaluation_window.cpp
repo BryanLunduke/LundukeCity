@@ -118,7 +118,7 @@ void EvaluationWindow::set_session(CitySession *session)
 void EvaluationWindow::present_report()
 {
     if (session_ != nullptr) {
-        session_->update_evaluation();
+        session_->note_evaluation_month(session_->game_month_index());
         month_index_ = session_->game_month_index();
     }
     show_all();
@@ -128,11 +128,14 @@ void EvaluationWindow::present_report()
 
 void EvaluationWindow::note_month(int month_index)
 {
-    if (session_ == nullptr || month_index == month_index_) {
+    if (session_ == nullptr) {
         return;
     }
-    month_index_ = month_index;
-    session_->update_evaluation();
+    // The session skips the pass while phase 0 has cleared the census,
+    // and while an engine callback is still on the stack.
+    if (session_->note_evaluation_month(month_index)) {
+        month_index_ = month_index;
+    }
 }
 
 void EvaluationWindow::sync()

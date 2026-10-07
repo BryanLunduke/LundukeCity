@@ -56,9 +56,16 @@ BudgetWindow::BudgetWindow()
         return true;
     });
     signal_hide().connect([this] {
-        if (session_ != nullptr) {
-            session_->commit_pending_budget();
+        if (session_ == nullptr) {
+            return;
         }
+        if (!accept_on_hide_) {
+            session_->set_tax(open_tax_);
+            session_->set_road_funding(open_road_);
+            session_->set_police_funding(open_police_);
+            session_->set_fire_funding(open_fire_);
+        }
+        session_->finish_budget_edit();
     });
 
     auto tune = [](Gtk::Scale &scale, double upper) {
@@ -103,10 +110,21 @@ BudgetWindow::BudgetWindow()
     add_slider(2, "Police fund", police_value_, police_);
     add_slider(3, "Fire fund", fire_value_, fire_);
 
+    auto *buttons = Gtk::manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL, 8));
+    buttons->set_halign(Gtk::ALIGN_END);
+    auto *cancel = Gtk::manage(new Gtk::Button("_Cancel", true));
+    cancel->signal_clicked().connect([this] {
+        accept_on_hide_ = false;
+        hide();
+    });
     auto *close = Gtk::manage(new Gtk::Button("_Close", true));
-    close->set_halign(Gtk::ALIGN_END);
-    close->signal_clicked().connect([this] { hide(); });
-    root_.pack_start(*close, Gtk::PACK_SHRINK);
+    close->signal_clicked().connect([this] {
+        accept_on_hide_ = true;
+        hide();
+    });
+    buttons->pack_start(*cancel, Gtk::PACK_SHRINK);
+    buttons->pack_start(*close, Gtk::PACK_SHRINK);
+    root_.pack_start(*buttons, Gtk::PACK_SHRINK);
 
     add(root_);
 
@@ -143,6 +161,14 @@ void BudgetWindow::set_session(CitySession *session)
 
 void BudgetWindow::present_book()
 {
+    if (session_ != nullptr) {
+        const CitySession::BudgetBook book = session_->budget();
+        open_tax_ = book.tax_percent;
+        open_road_ = book.road_percent;
+        open_police_ = book.police_percent;
+        open_fire_ = book.fire_percent;
+    }
+    accept_on_hide_ = true;
     show_all();
     present();
     sync();

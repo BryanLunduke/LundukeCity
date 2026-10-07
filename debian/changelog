@@ -1,3 +1,27 @@
+lunduke-city (0.9-3) unstable; urgency=medium
+
+  * Graphs and Evaluation use the last finished census, so phase 0 no
+    longer flashes a population of zero. Evaluation preview restores
+    every field it writes and does not advance the simulator RNG.
+  * The tax-year budget pauses the city. Saving collects that year.
+    New City resets road, police, and fire funding to 100%. Closing
+    the budget cannot spend the city negative, and Cancel restores
+    the rates from when the window opened.
+  * Generator-default islands honor rivers, lakes, and trees. "No
+    trees" plants nothing.
+  * Quit, closing the window, New City, Load, and Play Scenario ask
+    Save, Discard, or Cancel when the city has unsaved changes.
+  * Save confirms the path after the .cty suffix, writes a temporary
+    file, and replaces the destination with rename. Symlinks are not
+    followed. A failed scenario load keeps the current city. A seed
+    that is not a whole number stays on the land page.
+  * Cash flow and total population no longer wrap in 16 bits. Loaded
+    city names drop controls and bidi marks. Sound files are size
+    capped, and the mixer queue is bounded. Zoom starts below the
+    maximum, Slow and Medium slow sprites, and Space pauses the map.
+
+ -- LCOS <lcos@lunduke.com>  Wed, 07 Oct 2026 19:10:00 +0000
+
 lunduke-city (0.9-2) unstable; urgency=medium
 
   * Residential demand keeps the residential ratio. Industrial demand is

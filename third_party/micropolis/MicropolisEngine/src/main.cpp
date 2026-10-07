@@ -415,11 +415,16 @@ void Micropolis::simLoop(bool doSim)
        newMap = 1;
 
    } else {
+       bool stepped = true;
        if (doSim) {
-           simFrame();
+           stepped = simFrame();
        }
 
-       moveObjects();
+       // Sprites follow the same skip as the simulator. Slow and Medium
+       // used to move planes and tornadoes on every 100 ms tick.
+       if (stepped) {
+           moveObjects();
+       }
        simRobots();
    }
 

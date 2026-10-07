@@ -131,10 +131,10 @@ void Micropolis::init()
     // short indPop;
     indPop = 0;
 
-    // short totalPop;
+    // Quad totalPop. A short wrapped around five million people.
     totalPop = 0;
 
-    // short totalPopLast;
+    // Quad totalPopLast;
     totalPopLast = 0;
 
     // short resZonePop;
@@ -351,6 +351,15 @@ void Micropolis::init()
 
     // short cityYes;
     cityYes = 0;
+    evalPreviewValid = false;
+    evalPreviewYes = 0;
+    evalPreviewAssessed = 0;
+    for (int previewIndex = 0; previewIndex < PROBNUM; ++previewIndex) {
+        evalPreviewVotes[previewIndex] = 0;
+    }
+    for (int previewIndex = 0; previewIndex < CVP_PROBLEM_COMPLAINTS; ++previewIndex) {
+        evalPreviewOrder[previewIndex] = CVP_NUMPROBLEMS;
+    }
 
     // short problemVotes[PROBNUM]; /* these are the votes for each  */
     memset(problemVotes, 0, sizeof(short) * PROBNUM);
@@ -583,7 +592,7 @@ void Micropolis::init()
     comCap = false; // Do not block commercial growth
     indCap = false; // Do not block industrial growth
 
-    // short cashFlow;
+    // Quad cashFlow. A short wrapped a normal capital's annual flow.
     cashFlow = 0;
 
     // float externalMarket;
@@ -615,6 +624,21 @@ void Micropolis::init()
 
     // short phaseCycle;
     phaseCycle = 0;
+    censusSnapshotValid = false;
+    liveCensusComplete = false;
+    snapResPop = 0;
+    snapComPop = 0;
+    snapIndPop = 0;
+    snapRoadTotal = 0;
+    snapRailTotal = 0;
+    snapPolicePop = 0;
+    snapFirePop = 0;
+    snapHospitalPop = 0;
+    snapStadiumPop = 0;
+    snapSeaportPop = 0;
+    snapAirportPop = 0;
+    snapCoalPop = 0;
+    snapNuclearPop = 0;
 
     // short speedCycle;
     speedCycle = 0;
