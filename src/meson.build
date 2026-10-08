@@ -24,7 +24,7 @@ executable(
   lunduke_city_src,
   dependencies: [gtkmm_dep, micropolis_dep, thread_dep],
   cpp_args: [
-    '-DLUNDUKE_CITY_PACKAGE_VERSION="0.9-7"',
+    '-DLUNDUKE_CITY_PACKAGE_VERSION="0.9-8"',
   ],
   install: true,
 )

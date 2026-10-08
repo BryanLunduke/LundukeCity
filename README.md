@@ -1,13 +1,14 @@
 # Lunduke City
 
 Lunduke City is a windowed city-building game for LCOS. Version 0.9
-(Debian package 0.9-7, Meson project version 0.9.0) is the LCOS 0.9
+(Debian package 0.9-8, Meson project version 0.9.0) is the LCOS 0.9
 release track: classic menu / funds / tool-palette / map layout, wired
 to the Micropolis simulation engine. The map uses the Micropolis
 16-pixel tiles, and trains, ships, aircraft, tornadoes, and the monster
-are drawn from the engine's sprite frames. Debian revision 0.9-7
-shows budget estimates before the first January, states each scenario's
-goal and the time left, and starts the first screen paused. Official 0.8 stays at
+are drawn from the engine's sprite frames. Debian revision 0.9-8
+keeps the 0.9-7 budget estimates, scenario goals, and paused first
+screen. The tornado sprite-step check and the fountain test no longer
+follow the clock reseed in generateSomeCity(). Official 0.8 stays at
 tag `v0.8.1`.
 
 ## What 0.9-2 fixes
