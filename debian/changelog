@@ -1,3 +1,13 @@
+lunduke-city (0.9-8) unstable; urgency=medium
+
+  * The tornado sprite-step regression check is deterministic, and so is
+    the fountain test in features. A clock reseed in generateSomeCity()
+    used to blow the tornado away or re-arm it. The check now seeds the
+    RNG and turns disasters off. The fountain roll is primed through
+    test hook op 21.
+
+ -- Phil <phil@brushpad.local>  Thu, 08 Oct 2026 23:50:00 +0000
+
 lunduke-city (0.9-7) unstable; urgency=medium
 
   * A city with no January receipt shows estimated taxes and department
