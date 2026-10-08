@@ -1,3 +1,23 @@
+lunduke-city (0.9-4) unstable; urgency=medium
+
+  * A failed save no longer collects an open tax year, and Quit stays in
+    the city when Save fails. The error dialog includes the path and the
+    operating-system reason.
+  * Enable disasters is stored in the city file and restored on load,
+    including the Options check. A paused city loads paused.
+  * Tax, funding, and saved options count as unsaved changes.
+  * The budget window shows this year's tax, the balance Close will post,
+    and the funding a broke city can actually pay. Closing a menu budget
+    applies those percents to road, police, and fire maintenance.
+  * A tool that cannot build says why and does not mark the city unsaved.
+    A bridge says it costs $50. The cash-flow graph uses the real dollars.
+  * A repeated notice returns to the message bar. Scenario win and loss
+    pause the city and open a dialog. The side panel scrolls, and the
+    window will not shrink small enough to clip the tools. Menu letters
+    no longer collide. A name that is only spaces is rejected.
+
+ -- LCOS <lcos@lunduke.com>  Thu, 08 Oct 2026 12:00:00 +0000
+
 lunduke-city (0.9-3) unstable; urgency=medium
 
   * Graphs and Evaluation use the last finished census, so phase 0 no

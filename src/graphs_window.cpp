@@ -213,6 +213,9 @@ bool GraphsWindow::on_draw(const Cairo::RefPtr<Cairo::Context> &cr)
         if (item.population) {
             return static_cast<double>(population_at(*session_, scale, index));
         }
+        if (item.cash) {
+            return static_cast<double>(session_->cash_flow_history(scale, index));
+        }
         return session_->history_value(item.history, scale, index);
     };
 
@@ -261,7 +264,8 @@ bool GraphsWindow::on_draw(const Cairo::RefPtr<Cairo::Context> &cr)
         cr->stroke();
 
         const long newest = static_cast<long>(std::lround(sample(item, 0)));
-        const std::string caption = graph_legend_caption(item.name, item.legend, newest);
+        const bool exact = !item.cash || session_->cash_flow_history_exact(scale, 0);
+        const std::string caption = graph_legend_caption(item.name, item.legend, newest, exact);
         cr->set_source_rgba(fg.get_red(), fg.get_green(), fg.get_blue(), 1);
         auto layout = create_pango_layout(caption);
         cr->move_to(x + 22, y - 4);

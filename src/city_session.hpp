@@ -44,6 +44,11 @@ public:
         int road_percent = 100;
         int police_percent = 100;
         int fire_percent = 100;
+        // Set when Close will fund a department below the slider, because
+        // tax plus cash cannot cover the request.
+        std::string road_note;
+        std::string police_note;
+        std::string fire_note;
     };
 
     // Separate map views. Power codes: 0 empty, 2 unpowered zone,
@@ -121,6 +126,8 @@ public:
     bool save_city_as(const std::string &path);
     bool load_scenario(int id);
     void rename_city(const std::string &name);
+    // False when the name is empty after spaces, tabs, and controls are stripped.
+    static bool name_is_usable(const std::string &name);
 
     int difficulty() const;
     long funds() const;
@@ -201,6 +208,8 @@ public:
     std::string funds_text() const;
     std::string date_text() const;
     std::string message() const;
+    // Increases once per engine notice, including a repeat of the same words.
+    int message_serial() const { return message_serial_; }
     // Bumps once per query-tool report so the window can open feedback
     // even when the text matches the previous tile.
     int query_serial() const { return query_serial_; }
@@ -223,6 +232,12 @@ public:
     };
     static constexpr int kHistoryPoints = 120;
     int history_value(HistorySeries series, HistoryScale scale, int index) const;
+    // Dollars for one cash-flow sample. Index 0 is the newest.
+    long cash_flow_history(HistoryScale scale, int index) const;
+    // False when the sample was reconstructed from the capped history byte.
+    bool cash_flow_history_exact(HistoryScale scale, int index) const;
+    // 1 when the scenario was just won, -1 when it was just lost, then 0.
+    int take_scenario_outcome();
 
     // Public-opinion and score data from the last cityEvaluation().
     // update_evaluation() runs that pass; evaluation() only reads it.
@@ -267,8 +282,12 @@ private:
     Engine *engine_;
     Listener listener_;
     void set_service_funding(int kind, int percent);
+    void post_message(std::string text);
+    void mark_dirty();
 
     std::string message_;
+    int message_serial_ = 0;
+    int scenario_outcome_ = 0;
     int query_serial_ = 0;
     std::string save_path_;
     std::vector<std::string> sounds_;

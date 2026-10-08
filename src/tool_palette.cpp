@@ -272,7 +272,7 @@ bool ToolPalette::on_query_tooltip(int x, int y, bool, const Glib::RefPtr<Gtk::T
     if (index < 0) {
         return false;
     }
-    tooltip->set_text(tool_by_index(index)->name);
+    tooltip->set_text(tool_by_index(index)->hint);
     return true;
 }
 

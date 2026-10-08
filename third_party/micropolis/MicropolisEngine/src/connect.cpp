@@ -67,6 +67,7 @@
 
 #include "stdafx.h"
 #include "micropolis.h"
+#include "text.h"
 #include "tool.h"
 #include "position.h"
 
@@ -315,6 +316,7 @@ ToolResult Micropolis::layRoad(int x, int y, ToolEffects *effects)
         }
 
         /* Can't do road... */
+        toolFailureNotice = MESSAGE_NO_BRIDGE;
         return TOOLRESULT_FAILED;
 
     case LHPOWER:         /* Road on power */

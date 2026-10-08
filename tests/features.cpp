@@ -206,8 +206,8 @@ int main()
         return fail(22, "Dullsville should start with $5,000");
     }
 
-    if (std::string(kPackageVersion) != "0.9-3" || std::string(kReleaseTrack) != "0.9") {
-        return fail(23, "package version should be the 0.9-3 identity");
+    if (std::string(kPackageVersion) != "0.9-4" || std::string(kReleaseTrack) != "0.9") {
+        return fail(23, "package version should be the 0.9-4 identity");
     }
 
     auto count_kind = [](CitySession &city, bool woods) {
@@ -481,7 +481,10 @@ int main()
         graph_legend_caption("Pollution", GraphLegendKind::Level, 0) != "Pollution: 0 level") {
         return fail(60, "crime and pollution legend is not labeled as a level");
     }
-    if (graph_legend_caption("Cash flow", GraphLegendKind::CashFlow, 128) != "Cash flow: $0" ||
+    if (graph_legend_caption("Cash flow", GraphLegendKind::CashFlow, 0) != "Cash flow: $0" ||
+        graph_legend_caption("Cash flow", GraphLegendKind::CashFlow, 50000) != "Cash flow: $50,000" ||
+        graph_legend_caption("Cash flow", GraphLegendKind::CashFlow, 2540, false) !=
+            "Cash flow: $2,540 (capped)" ||
         graph_legend_caption("Population", GraphLegendKind::Population, 16000) != "Population: 16,000") {
         return fail(61, "population or cash-flow legend changed");
     }

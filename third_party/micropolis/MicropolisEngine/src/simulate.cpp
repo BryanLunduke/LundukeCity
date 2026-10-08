@@ -411,6 +411,10 @@ void Micropolis::initSimMemory()
 
     crimeRamp = 0;
     pollutionRamp = 0;
+    for (int i = 0; i < HISTORY_LENGTH / 2; i++) {
+        cashFlowHist[i] = 0;
+        cashFlowExact[i] = 1;
+    }
     totalPop = 0;
     resValve = 0;
     comValve = 0;
@@ -764,6 +768,8 @@ void Micropolis::take10Census()
         crimeHist[x + 1] = crimeHist[x];
         pollutionHist[x + 1] = pollutionHist[x];
         moneyHist[x + 1] = moneyHist[x];
+        cashFlowHist[x + 1] = cashFlowHist[x];
+        cashFlowExact[x + 1] = cashFlowExact[x];
 
     }
 
@@ -793,6 +799,8 @@ void Micropolis::take10Census()
         }
     }
     moneyHist[0] = x;
+    cashFlowHist[0] = cashFlow;
+    cashFlowExact[0] = 1;
 
     changeCensus();
 
@@ -851,6 +859,8 @@ void Micropolis::take120Census()
         crimeHist[x + 1] = crimeHist[x];
         pollutionHist[x + 1] = pollutionHist[x];
         moneyHist[x + 1] = moneyHist[x];
+        cashFlowHist[x + 1] = cashFlowHist[x];
+        cashFlowExact[x + 1] = cashFlowExact[x];
 
     }
 
@@ -864,6 +874,8 @@ void Micropolis::take120Census()
     crimeHist[120] = crimeHist[0] ;
     pollutionHist[120] = pollutionHist[0];
     moneyHist[120] = moneyHist[0];
+    cashFlowHist[120] = cashFlowHist[0];
+    cashFlowExact[120] = cashFlowExact[0];
     changeCensus();
 }
 
@@ -888,10 +900,8 @@ void Micropolis::collectTax()
      * @todo Break out so the user interface can configure this.
      */
     static const float RLevels[3] = { 0.7, 0.9, 1.2 };
-    static const float FLevels[3] = { 1.4, 1.2, 0.8 };
 
     assert(LEVEL_COUNT == LENGTH_OF(RLevels));
-    assert(LEVEL_COUNT == LENGTH_OF(FLevels));
 
     cashFlow = 0;
 
@@ -911,7 +921,7 @@ void Micropolis::collectTax()
         policeFund = (long)policeStationPop * 100;
         fireFund = (long)fireStationPop * 100;
         roadFund = (long)((roadTotal + (railTotal * 2)) * RLevels[gameLevel]);
-        taxFund = (long)((((Quad)totalPop * landValueAverage) / 120) * cityTax * FLevels[gameLevel]);
+        recomputeTaxFund();
 
         if (totalPop > 0) {
             /* There are people to tax. */
@@ -967,6 +977,70 @@ void Micropolis::updateFundEffects()
 #endif
 
     mustDrawBudget = 1;
+}
+
+
+void Micropolis::recomputeTaxFund()
+{
+    static const float FLevels[3] = { 1.4f, 1.2f, 0.8f };
+    int level = (int)gameLevel;
+    if (level < 0 || level >= LEVEL_COUNT) {
+        level = 0;
+    }
+    taxFund = (long)((((Quad)totalPop * (Quad)landValueAverage) / 120) * (Quad)cityTax * FLevels[level]);
+    if (taxFund < 0) {
+        taxFund = 0;
+    }
+}
+
+
+namespace {
+
+int cash_history_index(int historyScale, int historyIndex)
+{
+    if (historyIndex < 0 || historyIndex >= HISTORY_COUNT) {
+        return -1;
+    }
+    if (historyScale == HISTORY_SCALE_SHORT) {
+        return historyIndex;
+    }
+    if (historyScale == HISTORY_SCALE_LONG) {
+        return HISTORY_COUNT + historyIndex;
+    }
+    return -1;
+}
+
+} // namespace
+
+
+Quad Micropolis::cashFlowHistory(int historyScale, int historyIndex) const
+{
+    const int index = cash_history_index(historyScale, historyIndex);
+    if (index < 0) {
+        return 0;
+    }
+    return cashFlowHist[index];
+}
+
+
+bool Micropolis::cashFlowHistoryExact(int historyScale, int historyIndex) const
+{
+    const int index = cash_history_index(historyScale, historyIndex);
+    if (index < 0) {
+        return false;
+    }
+    return cashFlowExact[index] != 0;
+}
+
+
+void Micropolis::seedCashFlowHistoryFromMoney()
+{
+    const int count = HISTORY_LENGTH / 2;
+    for (int i = 0; i < count; i++) {
+        const int sample = (int)moneyHist[i];
+        cashFlowHist[i] = (Quad)(sample - 128) * 20;
+        cashFlowExact[i] = (sample > 0 && sample < 255) ? 1 : 0;
+    }
 }
 
 

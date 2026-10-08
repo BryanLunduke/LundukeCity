@@ -707,6 +707,12 @@ void Micropolis::init()
 
     enableDisasters = true;
 
+    saveErrno = 0;
+    saveErrorDetail.clear();
+    toolFailureNotice = 0;
+    memset(cashFlowHist, 0, sizeof(cashFlowHist));
+    memset(cashFlowExact, 0, sizeof(cashFlowExact));
+
     evalChanged = false;
 
     // short blinkFlag;

@@ -55,6 +55,8 @@ private:
     void on_load_city();
     void on_save_city();
     void on_save_city_as();
+    void report_save_failure();
+    void present_scenario_outcome(int outcome);
     void on_play_scenario();
     void on_rename_city();
     void on_budget();
@@ -87,6 +89,7 @@ private:
     Gtk::Label name_label_;
     Gtk::Label date_label_;
     Gtk::Box body_{Gtk::ORIENTATION_HORIZONTAL, 0};
+    Gtk::ScrolledWindow side_scroll_;
     Gtk::EventBox side_events_;
     Gtk::Box side_{Gtk::ORIENTATION_VERTICAL, 4};
     ToolPalette tools_;
@@ -119,6 +122,8 @@ private:
     int speed_ = 2;
     std::string tool_hint_ = "Power lines: $5";
     std::string shown_engine_message_;
+    int shown_message_serial_ = 0;
+    bool scenario_dialog_open_ = false;
     std::chrono::steady_clock::time_point hint_after_{};
     std::unique_ptr<Gtk::Dialog> query_dialog_;
     Gtk::Label *query_body_ = nullptr;

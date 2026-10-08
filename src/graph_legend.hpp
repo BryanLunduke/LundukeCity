@@ -47,9 +47,11 @@ inline std::string graph_money(long value)
 }
 
 // Legend text for one history series. People samples are scaled to residents.
-// Crime and pollution stay 0-255 and are labeled as levels. Cash flow uses
-// the engine's (sample - 128) * 20 encoding.
-inline std::string graph_legend_caption(const char *name, GraphLegendKind kind, long sample)
+// Crime and pollution stay 0-255 and are labeled as levels. Cash flow is the
+// year's dollars. exact is false when that figure was rebuilt from the
+// capped history byte in an older city file.
+inline std::string graph_legend_caption(const char *name, GraphLegendKind kind, long sample,
+                                        bool exact = true)
 {
     std::string caption = name != nullptr ? name : "";
     caption += ": ";
@@ -62,7 +64,10 @@ inline std::string graph_legend_caption(const char *name, GraphLegendKind kind, 
         caption += " people";
         break;
     case GraphLegendKind::CashFlow:
-        caption += graph_money(static_cast<long>(sample - 128) * 20L);
+        caption += graph_money(sample);
+        if (!exact) {
+            caption += " (capped)";
+        }
         break;
     case GraphLegendKind::Level:
         caption += std::to_string(sample);
