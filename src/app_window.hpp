@@ -149,8 +149,12 @@ private:
     std::chrono::steady_clock::time_point quake_started_{};
     std::chrono::steady_clock::time_point quake_until_{};
 
+#ifdef LUNDUKE_CITY_TEST_HOOKS
     friend int hostile_review_window_probe(AppWindow &window, int op);
+#endif
 };
 
+#ifdef LUNDUKE_CITY_TEST_HOOKS
 // Drives load, scenario, and announcement-pause paths without a file dialog.
 int hostile_review_window_probe(AppWindow &window, int op);
+#endif

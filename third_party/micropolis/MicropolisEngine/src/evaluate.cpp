@@ -244,7 +244,7 @@ void Micropolis::doPopNum()
 /** Compute city population. */
 Quad Micropolis::getPopulation()
 {
-    Quad pop = (resPop + (comPop + indPop) * 8L) * 20L;
+    const Quad pop = (resPop + (comPop + indPop) * 8) * 20;
     return pop;
 }
 
@@ -391,17 +391,18 @@ short Micropolis::getTrafficAverage()
  */
 short Micropolis::getUnemployment()
 {
-    short b = (comPop + indPop) * 8;
+    const Quad jobs = (comPop + indPop) * 8;
 
-    if (b == 0) {
+    if (jobs == 0) {
         return 0;
     }
 
     // Ratio total people / working. At least 1.
-    float r = ((float)resPop) / b;
+    const float r = ((float)resPop) / (float)jobs;
 
-    b = (short)((r - 1) * 255); // (r - 1) is the fraction unemployed people
-    return min(b, (short)255);
+    // (r - 1) is the fraction of unemployed people.
+    const Quad scaled = (Quad)((r - 1.0f) * 255.0f);
+    return min(saturateToShort(scaled), (short)255);
 }
 
 

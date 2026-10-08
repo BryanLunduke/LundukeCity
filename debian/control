@@ -2,6 +2,7 @@ Source: lunduke-city
 Section: games
 Priority: optional
 Maintainer: LCOS <lcos@lunduke.com>
+Build-Depends: xvfb, xauth
 Homepage: https://lunduke.com
 Standards-Version: 4.6.2
 

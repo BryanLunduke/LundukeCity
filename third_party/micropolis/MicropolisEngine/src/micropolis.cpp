@@ -122,13 +122,13 @@ void Micropolis::init()
     // short firePop;
     firePop = 0;
 
-    // short resPop;
+    // Quad resPop. A short wrapped a megalopolis.
     resPop = 0;
 
-    // short comPop;
+    // Quad comPop;
     comPop = 0;
 
-    // short indPop;
+    // Quad indPop;
     indPop = 0;
 
     // Quad totalPop. A short wrapped around five million people.
@@ -253,6 +253,18 @@ void Micropolis::init()
 
     // Quad taxFund;
     taxFund = 0;
+    taxReceiptKnown = false;
+    wideFundsValid = false;
+    wideFundsValue = 0;
+    wideCensusValid = false;
+    wideResPop = 0;
+    wideComPop = 0;
+    wideIndPop = 0;
+    wideReceiptValid = false;
+    wideTaxFund = 0;
+    wideRoadFund = 0;
+    widePoliceFund = 0;
+    wideFireFund = 0;
 
     // short cityTax;
     cityTax = 0;

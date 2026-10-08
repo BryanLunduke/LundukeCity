@@ -466,9 +466,17 @@ void Micropolis::simLoadInit()
     };
 
     externalMarket = (float)miscHist[1];
+    // Classic signed shorts. A newer file's LCW1 census replaces them so
+    // setValves below sees the wide counts. The map scan then recounts,
+    // and loadFile puts the trailer census back when the file has one.
     resPop = miscHist[2];
     comPop = miscHist[3];
     indPop = miscHist[4];
+    if (wideCensusValid) {
+        resPop = wideResPop;
+        comPop = wideComPop;
+        indPop = wideIndPop;
+    }
     resValve = miscHist[5];
     comValve = miscHist[6];
     indValve = miscHist[7];
@@ -553,6 +561,7 @@ void Micropolis::setCommonInits()
     fireEffect = MAX_FIRE_STATION_EFFECT;
     taxFlag = false;
     taxFund = 0;
+    taxReceiptKnown = false;
 }
 
 
@@ -589,9 +598,9 @@ void Micropolis::setValves()
     float normalizedResPop, projectedResPop, projectedComPop, projectedIndPop;
 
     miscHist[1] = (short)externalMarket;
-    miscHist[2] = resPop;
-    miscHist[3] = comPop;
-    miscHist[4] = indPop;
+    miscHist[2] = saturateToShort(resPop);
+    miscHist[3] = saturateToShort(comPop);
+    miscHist[4] = saturateToShort(indPop);
     miscHist[5] = resValve;
     miscHist[6] = comValve;
     miscHist[7] = indValve;
@@ -777,9 +786,9 @@ void Micropolis::take10Census()
     graph10Max = max(graph10Max, comHist10Max);
     graph10Max = max(graph10Max, indHist10Max);
 
-    resHist[0] = resPop / resPopDenom;
-    comHist[0] = comPop;
-    indHist[0] = indPop;
+    resHist[0] = saturateToShort(resPop / resPopDenom);
+    comHist[0] = saturateToShort(comPop);
+    indHist[0] = saturateToShort(indPop);
 
     crimeRamp += (crimeAverage - crimeRamp) / 4;
     crimeHist[0] = min(crimeRamp, (short)255);
@@ -804,7 +813,7 @@ void Micropolis::take10Census()
 
     changeCensus();
 
-    short resPopScaled = resPop >> 8;
+    short resPopScaled = saturateToShort(resPop >> 8);
 
     if (hospitalPop < resPopScaled) {
         needHospital = 1;
@@ -868,9 +877,9 @@ void Micropolis::take120Census()
     graph120Max = max(graph120Max, comHist120Max);
     graph120Max = max(graph120Max, indHist120Max);
 
-    resHist[120] = resPop / resPopDenom;
-    comHist[120] = comPop;
-    indHist[120] = indPop;
+    resHist[120] = saturateToShort(resPop / resPopDenom);
+    comHist[120] = saturateToShort(comPop);
+    indHist[120] = saturateToShort(indPop);
     crimeHist[120] = crimeHist[0] ;
     pollutionHist[120] = pollutionHist[0];
     moneyHist[120] = moneyHist[0];
@@ -922,6 +931,7 @@ void Micropolis::collectTax()
         fireFund = (long)fireStationPop * 100;
         roadFund = (long)((roadTotal + (railTotal * 2)) * RLevels[gameLevel]);
         recomputeTaxFund();
+        taxReceiptKnown = true;
 
         if (totalPop > 0) {
             /* There are people to tax. */

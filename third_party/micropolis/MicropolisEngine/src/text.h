@@ -157,6 +157,7 @@ enum MessageNumber {
     MESSAGE_BRIDGE_COST, ///< 61: A bridge was built.
     MESSAGE_RAIL_BRIDGE_COST, ///< 62: Rail was built across water.
     MESSAGE_UNDERWATER_WIRE, ///< 63: A power line was built across water.
+    MESSAGE_NO_POWER_LINE, ///< 64: A power line has nowhere to land.
 
-    MESSAGE_LAST = 63, ///< Last valid message
+    MESSAGE_LAST = 64, ///< Last valid message
 };

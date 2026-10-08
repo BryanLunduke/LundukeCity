@@ -330,10 +330,12 @@ int main()
     const std::string rail_miss = crossing.message();
     crossing.use_tool(TOOL_WIRE, 20, 20);
     if (crossing.funds() != missed || rail_miss.find("anchor") == std::string::npos ||
-        crossing.message().find("anchor") == std::string::npos || crossing.needs_save_prompt() != dirty_before) {
+        crossing.message().find("power line") == std::string::npos ||
+        crossing.message().find("bridge") != std::string::npos ||
+        crossing.needs_save_prompt() != dirty_before) {
         std::fprintf(stderr, "miss rail '%s' wire '%s' funds %ld\n", rail_miss.c_str(), crossing.message().c_str(),
                      crossing.funds());
-        return fail(40, "rail or power with nowhere to anchor was silent or charged the city");
+        return fail(40, "rail or power with nowhere to land was silent, charged the city, or used the other tool's words");
     }
 
     CitySession saved;

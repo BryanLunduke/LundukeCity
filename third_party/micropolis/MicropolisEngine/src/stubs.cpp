@@ -153,7 +153,7 @@ void Micropolis::spend(int dollars)
  * money.
  * @param dollars New value for the player funds.
  */
-void Micropolis::setFunds(int dollars)
+void Micropolis::setFunds(Quad dollars)
 {
     totalFunds = dollars;
     updateFunds();

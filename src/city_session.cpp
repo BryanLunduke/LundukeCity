@@ -42,13 +42,27 @@ const char *kMonths[] = {
     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 };
 
+int percent_of_fraction(float fraction)
+{
+    int n = static_cast<int>(fraction * 100.0f + 0.5f);
+    if (n < 0) {
+        n = 0;
+    }
+    if (n > 100) {
+        n = 100;
+    }
+    return n;
+}
+
 Quad live_population_count(const Micropolis &sim)
 {
     // Phase 0 clears the live counts. The snapshot is the last finished scan.
-    const short res = sim.censusSnapshotValid ? sim.snapResPop : sim.resPop;
-    const short com = sim.censusSnapshotValid ? sim.snapComPop : sim.comPop;
-    const short ind = sim.censusSnapshotValid ? sim.snapIndPop : sim.indPop;
-    return (static_cast<Quad>(res) + (static_cast<Quad>(com) + static_cast<Quad>(ind)) * 8L) * 20L;
+    // The counters are wide. A 16-bit history sample can be saturated; this
+    // count is the one the status line and Evaluation show.
+    const Quad res = sim.censusSnapshotValid ? sim.snapResPop : sim.resPop;
+    const Quad com = sim.censusSnapshotValid ? sim.snapComPop : sim.comPop;
+    const Quad ind = sim.censusSnapshotValid ? sim.snapIndPop : sim.indPop;
+    return (res + (com + ind) * 8) * 20;
 }
 
 CityClass live_city_class(Quad population)
@@ -149,6 +163,7 @@ struct CitySession::Engine {
     Micropolis sim;
 };
 
+#ifdef LUNDUKE_CITY_TEST_HOOKS
 int hostile_review_session_probe(CitySession &session, int op)
 {
     Micropolis &sim = session.engine_->sim;
@@ -278,7 +293,24 @@ int hostile_review_session_probe(CitySession &session, int op)
     if (op == 15) {
         sim.budgetAwaitingAccept = false;
         sim.taxFund = 2000;
+        sim.taxReceiptKnown = true;
         return static_cast<int>(sim.taxFund);
+    }
+    if (op == 16) {
+        // Taxes in hand are what make the road cut affordable. Cash alone
+        // would cut the same request much harder.
+        sim.autoBudget = false;
+        sim.taxFund = 2000;
+        sim.taxReceiptKnown = true;
+        sim.roadFund = 5000;
+        sim.policeFund = 0;
+        sim.fireFund = 1000;
+        sim.roadPercent = 1.0f;
+        sim.policePercent = 1.0f;
+        sim.firePercent = 1.0f;
+        sim.setFunds(100);
+        sim.doBudgetNow(false);
+        return sim.budgetAwaitingAccept ? static_cast<int>(sim.totalFunds) : -1;
     }
     sim.cityAssessedValue = 424242;
     const bool ran = session.note_evaluation_month(session.game_month_index() + 50);
@@ -288,6 +320,7 @@ int hostile_review_session_probe(CitySession &session, int op)
     }
     return 0;
 }
+#endif
 
 CitySession::CitySession()
     : engine_(new Engine)
@@ -903,18 +936,21 @@ void CitySession::set_service_funding(int kind, int percent)
     } else if (kind == 2) {
         slot = &sim.firePercent;
     }
-    // The player named this rate, even when doBudgetNow had already scaled
-    // the department to the same number. That request is what the cut
-    // sentence compares, so a slider left on 0% is not "cut to 0%".
+    // The scale reports values inside the percent it is already showing
+    // (2.4 rounds to 2). That is not a new request, and it must not drop
+    // the cut sentence. 0% is the request the tax year already locked:
+    // leaving the slider on zero after the city cut the department there
+    // means the player asked for nothing, so the sentence goes away.
+    const int showing = percent_of_fraction(*slot);
+    if (showing == percent && percent != 0) {
+        return;
+    }
     if (kind == 1) {
         sim.policeFundingTouched = true;
     } else if (kind == 2) {
         sim.fireFundingTouched = true;
     } else {
         sim.roadFundingTouched = true;
-    }
-    if (*slot == fraction) {
-        return;
     }
     // Effects wait until the budget window commits. Moving a slider used
     // to drop road and coverage before any money moved.
@@ -982,6 +1018,7 @@ CitySession::BudgetBook CitySession::budget() const
     book.road_need = static_cast<long>(sim.roadFund);
     book.police_need = static_cast<long>(sim.policeFund);
     book.fire_need = static_cast<long>(sim.fireFund);
+    book.taxes_known = sim.taxReceiptKnown;
 
     if (sim.budgetAwaitingAccept) {
         const Micropolis::BudgetCharge charge = sim.budgetCharge();
@@ -992,6 +1029,15 @@ CitySession::BudgetBook CitySession::budget() const
         book.previous_funds = sim.budgetAnchorValid ? static_cast<long>(sim.budgetAnchorFunds)
                                                     : static_cast<long>(sim.totalFunds);
         book.funds = static_cast<long>(sim.totalFunds) + book.cash_flow;
+        // budgetCharge spends taxFund + cash, roads first, then fire, then
+        // police. The sentence names that same money. A later department
+        // that gets nothing because an earlier one used the pool says so.
+        const long taxes = static_cast<long>(sim.taxFund);
+        const long cash = static_cast<long>(sim.totalFunds);
+        // Roads are paid first. Once one department is short, every later
+        // short department was left short because that earlier one took
+        // the taxes and cash that remained.
+        bool earlier_was_cut = false;
         auto cut = [&](float requested, bool touched, float slider, float applied, Quad fund) -> std::string {
             if (fund <= 0) {
                 return {};
@@ -1004,15 +1050,26 @@ CitySession::BudgetBook CitySession::budget() const
             if (want <= got) {
                 return {};
             }
-            return "cut to " + std::to_string(got) + "% because the city has " +
-                   with_commas(static_cast<long>(sim.totalFunds));
+            std::string note;
+            if (earlier_was_cut) {
+                note = "cut to " + std::to_string(got) +
+                       "% because an earlier department took the rest of taxes (" + with_commas(taxes) +
+                       ") plus the " + with_commas(cash) + " on hand";
+            } else {
+                note = "cut to " + std::to_string(got) + "% because taxes (" + with_commas(taxes) +
+                       ") plus the " + with_commas(cash) + " on hand cannot cover " + std::to_string(want) +
+                       "%";
+            }
+            earlier_was_cut = true;
+            return note;
         };
-        book.road_note = cut(sim.roadPercentRequested, sim.roadFundingTouched, sim.roadPercent,
-                             charge.roadPercent, sim.roadFund);
-        book.police_note = cut(sim.policePercentRequested, sim.policeFundingTouched, sim.policePercent,
-                               charge.policePercent, sim.policeFund);
-        book.fire_note = cut(sim.firePercentRequested, sim.fireFundingTouched, sim.firePercent,
-                             charge.firePercent, sim.fireFund);
+        book.road_note = cut(sim.roadPercentRequested, sim.roadFundingTouched, sim.roadPercent, charge.roadPercent,
+                             sim.roadFund);
+        book.fire_note = cut(sim.firePercentRequested, sim.fireFundingTouched, sim.firePercent, charge.firePercent,
+                             sim.fireFund);
+        book.police_note =
+            cut(sim.policePercentRequested, sim.policeFundingTouched, sim.policePercent, charge.policePercent,
+                sim.policeFund);
         return book;
     }
 
@@ -1329,6 +1386,12 @@ int CitySession::take_scenario_outcome()
     return outcome;
 }
 
+std::string CitySession::scenario_outcome_text(bool won) const
+{
+    return city_name() + (won ? " is won." : " is lost.") +
+           " The city is paused for this announcement. Keep playing continues at the previous speed.";
+}
+
 void CitySession::resume_after_outcome()
 {
     if (!outcome_paused_) {
@@ -1337,6 +1400,20 @@ void CitySession::resume_after_outcome()
     const int resume = speed_before_outcome_;
     outcome_paused_ = false;
     set_speed(resume);
+}
+
+void CitySession::stay_paused_after_outcome()
+{
+    // The announcement is over and the player wants the clock to stay
+    // stopped. The remembered speed remains so the next scenario can
+    // still start at the speed from before the win or loss.
+    if (!outcome_paused_) {
+        return;
+    }
+    speed_ = 0;
+    if (ready_) {
+        engine_->sim.setSpeed(0);
+    }
 }
 
 void CitySession::update_evaluation()

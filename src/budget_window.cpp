@@ -232,6 +232,8 @@ void BudgetWindow::sync()
     apply_mode();
     if (session_->budget_pending()) {
         taxes_.set_text("Taxes collected: " + money(book.taxes));
+    } else if (!book.taxes_known) {
+        taxes_.set_text("No tax receipt in this file");
     } else {
         taxes_.set_text("Last January's taxes: " + money(book.taxes));
     }

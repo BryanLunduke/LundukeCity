@@ -49,6 +49,9 @@ public:
         std::string road_note;
         std::string police_note;
         std::string fire_note;
+        // False when this file has no stored January. The dollar line then
+        // says so instead of printing $0.
+        bool taxes_known = false;
     };
 
     // Separate map views. Power codes: 0 empty, 2 unpowered zone,
@@ -248,6 +251,11 @@ public:
     bool outcome_pause_pending() const { return outcome_paused_; }
     // Leave the announcement pause and run at outcome_resume_speed().
     void resume_after_outcome();
+    // Leave the clock stopped. The remembered speed stays available for
+    // the next scenario.
+    void stay_paused_after_outcome();
+    // Body of the win/loss dialog. Keep playing is what starts the clock.
+    std::string scenario_outcome_text(bool won) const;
 
     // Public-opinion and score data from the last cityEvaluation().
     // update_evaluation() runs that pass; evaluation() only reads it.
@@ -317,8 +325,12 @@ private:
     int speed_before_outcome_ = 2;
     bool outcome_paused_ = false;
 
+#ifdef LUNDUKE_CITY_TEST_HOOKS
     friend int hostile_review_session_probe(CitySession &session, int op);
+#endif
 };
 
+#ifdef LUNDUKE_CITY_TEST_HOOKS
 // Test hook for the census month and a budget left open across New City.
 int hostile_review_session_probe(CitySession &session, int op);
+#endif
