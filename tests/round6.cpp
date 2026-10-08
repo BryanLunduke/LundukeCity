@@ -143,30 +143,30 @@ int main()
                          book.road_percent, book.road_note.c_str());
             return fail(13, "the tax year did not cut fire to 0% with an explanation");
         }
-        const std::string fire_note = book.fire_note;
         const std::string road_note = book.road_note;
+        // Choosing 0% is the player's request, so the "the city cut this"
+        // sentence goes away. A scale that merely reports 0 again is the
+        // window test: that path never calls the setter.
         taxed.set_fire_funding(0);
         taxed.set_road_funding(42);
         const CitySession::BudgetBook again = taxed.budget();
-        if (again.fire_note != fire_note || again.fire_percent != 0 || again.road_note != road_note ||
+        if (!again.fire_note.empty() || again.fire_percent != 0 || again.road_note != road_note ||
             again.road_percent != 42) {
             std::fprintf(stderr, "fire '%s' road '%s'\n", again.fire_note.c_str(), again.road_note.c_str());
-            return fail(14, "reporting the percent already showing, including 0, cleared the cut sentence");
+            return fail(14, "a real 0% request still said the city cut it, or 42% lost its sentence");
         }
         taxed.set_fire_funding(40);
         if (taxed.budget().fire_percent != 40) {
             return fail(15, "a real change away from 0% did not move the slider");
         }
-        // A real move to 0% is a new request. Reporting that same 0 again
-        // must not rewrite the sentence the first request produced.
         taxed.set_fire_funding(0);
         const CitySession::BudgetBook at_zero = taxed.budget();
         taxed.set_fire_funding(0);
-        if (at_zero.fire_percent != 0 || taxed.budget().fire_percent != 0 ||
+        if (at_zero.fire_percent != 0 || !at_zero.fire_note.empty() || taxed.budget().fire_percent != 0 ||
             taxed.budget().fire_note != at_zero.fire_note) {
             std::fprintf(stderr, "moved '%s' then '%s'\n", at_zero.fire_note.c_str(),
                          taxed.budget().fire_note.c_str());
-            return fail(16, "reporting 0 again after a real return to 0% changed the cut sentence");
+            return fail(16, "choosing 0% still said the city cut the department");
         }
     }
 

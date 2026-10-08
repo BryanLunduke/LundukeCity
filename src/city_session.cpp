@@ -989,12 +989,13 @@ void CitySession::set_service_funding(int kind, int percent)
     } else if (kind == 2) {
         slot = &sim.firePercent;
     }
-    // The scale reports values inside the percent it is already showing
-    // (2.4 rounds to 2, and a scale sitting on 0 can report 0 again).
-    // That is not a new request, and it must not drop the cut sentence.
-    // The touched flag is set only after the percent actually changes.
+    // A scale event that rounds to a non-zero percent already on screen
+    // is not a new request. Zero is different: choosing 0% is the player
+    // asking for nothing, and the cut sentence has to go away (round 4).
+    // The budget window drops a scale event that rounds to the percent
+    // already showing, including 0, before it gets here.
     const int showing = percent_of_fraction(*slot);
-    if (showing == percent) {
+    if (showing == percent && percent != 0) {
         return;
     }
     if (kind == 1) {

@@ -150,29 +150,40 @@ BudgetWindow::BudgetWindow()
 
     add(root_);
 
-    tax_.signal_value_changed().connect([this] {
-        if (!updating_ && session_ != nullptr) {
-            session_->set_tax(static_cast<int>(tax_.get_value() + 0.5));
-            sync();
+    // A scale can report a fraction that rounds to the percent already
+    // showing, including 0. That is not a new request. Snapping the
+    // scale keeps the cut sentence. An explicit move to a different
+    // percent, including a real move to 0%, still goes through.
+    auto on_scale = [this](Gtk::Scale &scale, int shown, auto apply) {
+        if (updating_ || session_ == nullptr) {
+            return;
         }
+        const int percent = static_cast<int>(scale.get_value() + 0.5);
+        if (percent == shown) {
+            if (scale.get_value() != static_cast<double>(percent)) {
+                updating_ = true;
+                scale.set_value(percent);
+                updating_ = false;
+            }
+            return;
+        }
+        apply(percent);
+        sync();
+    };
+    tax_.signal_value_changed().connect([this, on_scale] {
+        on_scale(tax_, session_ == nullptr ? -1 : session_->tax(), [this](int percent) { session_->set_tax(percent); });
     });
-    road_.signal_value_changed().connect([this] {
-        if (!updating_ && session_ != nullptr) {
-            session_->set_road_funding(static_cast<int>(road_.get_value() + 0.5));
-            sync();
-        }
+    road_.signal_value_changed().connect([this, on_scale] {
+        on_scale(road_, session_ == nullptr ? -1 : session_->budget().road_percent,
+                 [this](int percent) { session_->set_road_funding(percent); });
     });
-    police_.signal_value_changed().connect([this] {
-        if (!updating_ && session_ != nullptr) {
-            session_->set_police_funding(static_cast<int>(police_.get_value() + 0.5));
-            sync();
-        }
+    police_.signal_value_changed().connect([this, on_scale] {
+        on_scale(police_, session_ == nullptr ? -1 : session_->budget().police_percent,
+                 [this](int percent) { session_->set_police_funding(percent); });
     });
-    fire_.signal_value_changed().connect([this] {
-        if (!updating_ && session_ != nullptr) {
-            session_->set_fire_funding(static_cast<int>(fire_.get_value() + 0.5));
-            sync();
-        }
+    fire_.signal_value_changed().connect([this, on_scale] {
+        on_scale(fire_, session_ == nullptr ? -1 : session_->budget().fire_percent,
+                 [this](int percent) { session_->set_fire_funding(percent); });
     });
 }
 

@@ -157,7 +157,11 @@ AppWindow::AppWindow()
     if (welcome_was_dismissed()) {
         welcome_bar_.hide();
     } else {
-        welcome_bar_.show_all();
+        // show_all() ignores a widget with no-show-all set. show() is what
+        // puts the tip on screen, and a later show_all() leaves it alone.
+        welcome_label_.show();
+        welcome_dismiss_.show();
+        welcome_bar_.show();
     }
     refresh();
     map_.grab_focus();
