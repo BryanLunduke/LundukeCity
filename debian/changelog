@@ -1,3 +1,12 @@
+lunduke-city (0.9-9) unstable; urgency=medium
+
+  * The Graphs window names every series beside its color swatch.
+    Residential, Commercial, Industrial, cash flow, crime, pollution,
+    and population stay on the window in the theme font, so the labels
+    are readable at the default size and do not cover the plot.
+
+ -- Phil <phil@brushpad.local>  Thu, 08 Oct 2026 23:58:00 +0000
+
 lunduke-city (0.9-8) unstable; urgency=medium
 
   * The tornado sprite-step regression check is deterministic, and so is

@@ -12,6 +12,7 @@
 #include <string>
 
 #include <gtkmm/button.h>
+#include <gtkmm/grid.h>
 #include <gtkmm/separator.h>
 
 namespace {
@@ -46,6 +47,15 @@ struct Rgb {
     double b;
 };
 
+struct SeriesSpec {
+    const char *name;
+    Rgb color;
+    bool population;
+    bool cash;
+    GraphLegendKind legend;
+    CitySession::HistorySeries history;
+};
+
 long population_at(const CitySession &session, CitySession::HistoryScale scale, int index)
 {
     const int residential = session.history_value(CitySession::HistorySeries::Residential, scale, index);
@@ -55,6 +65,36 @@ long population_at(const CitySession &session, CitySession::HistoryScale scale, 
     return static_cast<long>(residential + commercial + industrial) * kHistoryPeoplePerSample;
 }
 
+void fill_series(bool dark, SeriesSpec out[GraphsWindow::kSeriesCount])
+{
+    out[0] = SeriesSpec{"Population", dark ? Rgb{0.95, 0.95, 0.95} : Rgb{0.15, 0.15, 0.15}, true, false,
+                        GraphLegendKind::Population, CitySession::HistorySeries::Residential};
+    out[1] = SeriesSpec{"Residential", {0.20, 0.62, 0.28}, false, false, GraphLegendKind::People,
+                        CitySession::HistorySeries::Residential};
+    out[2] = SeriesSpec{"Commercial", {0.20, 0.38, 0.82}, false, false, GraphLegendKind::People,
+                        CitySession::HistorySeries::Commercial};
+    out[3] = SeriesSpec{"Industrial", dark ? Rgb{0.95, 0.78, 0.25} : Rgb{0.72, 0.55, 0.08}, false, false,
+                        GraphLegendKind::People, CitySession::HistorySeries::Industrial};
+    out[4] = SeriesSpec{"Cash flow", {0.10, 0.55, 0.48}, false, true, GraphLegendKind::CashFlow,
+                        CitySession::HistorySeries::CashFlow};
+    out[5] = SeriesSpec{"Crime", {0.80, 0.22, 0.18}, false, false, GraphLegendKind::Level,
+                        CitySession::HistorySeries::Crime};
+    out[6] = SeriesSpec{"Pollution", dark ? Rgb{0.78, 0.62, 0.28} : Rgb{0.45, 0.38, 0.12}, false, false,
+                        GraphLegendKind::Level, CitySession::HistorySeries::Pollution};
+}
+
+double sample_series(const CitySession &session, const SeriesSpec &item, CitySession::HistoryScale scale,
+                     int index)
+{
+    if (item.population) {
+        return static_cast<double>(population_at(session, scale, index));
+    }
+    if (item.cash) {
+        return static_cast<double>(session.cash_flow_history(scale, index));
+    }
+    return session.history_value(item.history, scale, index);
+}
+
 } // namespace
 
 GraphsWindow::GraphsWindow()
@@ -62,7 +102,9 @@ GraphsWindow::GraphsWindow()
 {
     set_title("Graphs");
     set_border_width(12);
-    set_default_size(640, 480);
+    // Tall enough for the plot plus a two-column legend at the theme font.
+    // The window still grows when a caption is wider than this.
+    set_default_size(720, 540);
 
     signal_delete_event().connect([this](GdkEventAny *) {
         hide();
@@ -77,15 +119,67 @@ GraphsWindow::GraphsWindow()
     funds_.set_halign(Gtk::ALIGN_START);
     scale_note_.set_halign(Gtk::ALIGN_START);
     scale_note_.set_line_wrap(true);
-    scale_note_.set_max_width_chars(64);
+    scale_note_.set_max_width_chars(72);
 
+    chart_.set_name("graph-chart");
     chart_.set_hexpand(true);
     chart_.set_vexpand(true);
-    chart_.set_size_request(560, 300);
+    chart_.set_size_request(560, 240);
 
     auto *head = Gtk::manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL, 16));
     head->pack_start(population_, Gtk::PACK_SHRINK);
     head->pack_start(funds_, Gtk::PACK_SHRINK);
+
+    auto *legend = Gtk::manage(new Gtk::Grid());
+    legend->set_name("graph-legend");
+    legend->set_column_spacing(28);
+    legend->set_row_spacing(4);
+    legend->set_halign(Gtk::ALIGN_START);
+    legend->set_hexpand(false);
+
+    // The legend does not toggle series. A click on the name is the same
+    // as a click on the swatch: it selects nothing.
+    SeriesSpec specs[kSeriesCount];
+    fill_series(false, specs);
+    for (int i = 0; i < kSeriesCount; ++i) {
+        auto *swatch = Gtk::manage(new Gtk::DrawingArea());
+        swatch->set_name("graph-legend-swatch");
+        swatch->set_size_request(18, 14);
+        swatch->set_valign(Gtk::ALIGN_CENTER);
+        swatch->set_halign(Gtk::ALIGN_START);
+        legend_swatch_[i] = swatch;
+        swatch_r_[i] = specs[i].color.r;
+        swatch_g_[i] = specs[i].color.g;
+        swatch_b_[i] = specs[i].color.b;
+        swatch->signal_draw().connect([this, i](const Cairo::RefPtr<Cairo::Context> &cr) {
+            Gtk::DrawingArea *area = legend_swatch_[i];
+            const int w = std::max(1, area->get_allocated_width());
+            const int h = std::max(1, area->get_allocated_height());
+            auto style = area->get_style_context();
+            style->render_background(cr, 0, 0, w, h);
+            cr->set_source_rgb(swatch_r_[i], swatch_g_[i], swatch_b_[i]);
+            cr->set_line_width(3.0);
+            const double y = h / 2.0;
+            cr->move_to(1.0, y);
+            cr->line_to(static_cast<double>(std::max(2, w - 1)), y);
+            cr->stroke();
+            return true;
+        });
+
+        auto *label = Gtk::manage(new Gtk::Label(specs[i].name));
+        label->set_name("graph-legend-label");
+        label->set_halign(Gtk::ALIGN_START);
+        label->set_valign(Gtk::ALIGN_CENTER);
+        label->set_ellipsize(Pango::ELLIPSIZE_NONE);
+        label->set_line_wrap(false);
+        legend_label_[i] = label;
+
+        auto *row = Gtk::manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL, 6));
+        row->set_name("graph-legend-row");
+        row->pack_start(*swatch, Gtk::PACK_SHRINK);
+        row->pack_start(*label, Gtk::PACK_SHRINK);
+        legend->attach(*row, i % 2, i / 2, 1, 1);
+    }
 
     auto *close = Gtk::manage(new Gtk::Button("_Close", true));
     close->set_halign(Gtk::ALIGN_END);
@@ -95,11 +189,13 @@ GraphsWindow::GraphsWindow()
     root_.pack_start(*head, Gtk::PACK_SHRINK);
     root_.pack_start(scale_note_, Gtk::PACK_SHRINK);
     root_.pack_start(chart_, Gtk::PACK_EXPAND_WIDGET);
+    root_.pack_start(*legend, Gtk::PACK_SHRINK);
     root_.pack_start(*Gtk::manage(new Gtk::Separator()), Gtk::PACK_SHRINK);
     root_.pack_start(*close, Gtk::PACK_SHRINK);
     add(root_);
 
-    chart_.signal_draw().connect(sigc::mem_fun(*this, &GraphsWindow::on_draw));
+    chart_.signal_draw().connect(sigc::mem_fun(*this, &GraphsWindow::on_chart_draw));
+    chart_.signal_style_updated().connect([this] { refresh_legend(); });
     ten_.signal_toggled().connect([this] {
         if (ten_.get_active()) {
             sync();
@@ -110,6 +206,7 @@ GraphsWindow::GraphsWindow()
             sync();
         }
     });
+    refresh_legend();
 }
 
 void GraphsWindow::set_session(CitySession *session)
@@ -129,6 +226,7 @@ void GraphsWindow::present_graphs()
 void GraphsWindow::sync()
 {
     if (session_ == nullptr) {
+        refresh_legend();
         return;
     }
     const CitySession::Evaluation report = session_->evaluation();
@@ -141,10 +239,44 @@ void GraphsWindow::sync()
         scale_note_.set_text("120 monthly samples from the engine history. Each line is scaled to its own range. "
                              "The right edge is the newest month.");
     }
+    refresh_legend();
     chart_.queue_draw();
 }
 
-bool GraphsWindow::on_draw(const Cairo::RefPtr<Cairo::Context> &cr)
+bool GraphsWindow::chart_is_dark() const
+{
+    auto style = chart_.get_style_context();
+    const Gdk::RGBA fg = style->get_color(style->get_state());
+    return fg.get_red() + fg.get_green() + fg.get_blue() > 1.6;
+}
+
+void GraphsWindow::refresh_legend()
+{
+    SeriesSpec specs[kSeriesCount];
+    fill_series(chart_is_dark(), specs);
+    const auto scale =
+        long_term_.get_active() ? CitySession::HistoryScale::Long : CitySession::HistoryScale::Short;
+    for (int i = 0; i < kSeriesCount; ++i) {
+        swatch_r_[i] = specs[i].color.r;
+        swatch_g_[i] = specs[i].color.g;
+        swatch_b_[i] = specs[i].color.b;
+        if (legend_swatch_[i] != nullptr) {
+            legend_swatch_[i]->queue_draw();
+        }
+        if (legend_label_[i] == nullptr) {
+            continue;
+        }
+        if (session_ == nullptr) {
+            legend_label_[i]->set_text(specs[i].name);
+            continue;
+        }
+        const long newest = static_cast<long>(std::lround(sample_series(*session_, specs[i], scale, 0)));
+        const bool exact = !specs[i].cash || session_->cash_flow_history_exact(scale, 0);
+        legend_label_[i]->set_text(graph_legend_caption(specs[i].name, specs[i].legend, newest, exact));
+    }
+}
+
+bool GraphsWindow::on_chart_draw(const Cairo::RefPtr<Cairo::Context> &cr)
 {
     const int width = chart_.get_allocated_width();
     const int height = chart_.get_allocated_height();
@@ -153,14 +285,14 @@ bool GraphsWindow::on_draw(const Cairo::RefPtr<Cairo::Context> &cr)
     }
 
     auto style = chart_.get_style_context();
+    style->render_background(cr, 0, 0, width, height);
     const Gdk::RGBA fg = style->get_color(style->get_state());
     const bool dark = fg.get_red() + fg.get_green() + fg.get_blue() > 1.6;
 
     const int left = 16;
     const int right = 16;
     const int top = 12;
-    const int legend_h = 92;
-    const int bottom = legend_h + 8;
+    const int bottom = 12;
     const double plot_w = std::max(1, width - left - right);
     const double plot_h = std::max(1, height - top - bottom);
     const double plot_bottom = top + plot_h;
@@ -185,46 +317,15 @@ bool GraphsWindow::on_draw(const Cairo::RefPtr<Cairo::Context> &cr)
     const auto scale =
         long_term_.get_active() ? CitySession::HistoryScale::Long : CitySession::HistoryScale::Short;
 
-    struct Series {
-        const char *name;
-        Rgb color;
-        bool population;
-        bool cash;
-        GraphLegendKind legend;
-        CitySession::HistorySeries history;
-    };
-    const Series series[] = {
-        {"Population", dark ? Rgb{0.95, 0.95, 0.95} : Rgb{0.15, 0.15, 0.15}, true, false,
-         GraphLegendKind::Population, CitySession::HistorySeries::Residential},
-        {"Residential", {0.20, 0.62, 0.28}, false, false, GraphLegendKind::People,
-         CitySession::HistorySeries::Residential},
-        {"Commercial", {0.20, 0.38, 0.82}, false, false, GraphLegendKind::People,
-         CitySession::HistorySeries::Commercial},
-        {"Industrial", dark ? Rgb{0.95, 0.78, 0.25} : Rgb{0.72, 0.55, 0.08}, false, false,
-         GraphLegendKind::People, CitySession::HistorySeries::Industrial},
-        {"Cash flow", {0.10, 0.55, 0.48}, false, true, GraphLegendKind::CashFlow,
-         CitySession::HistorySeries::CashFlow},
-        {"Crime", {0.80, 0.22, 0.18}, false, false, GraphLegendKind::Level, CitySession::HistorySeries::Crime},
-        {"Pollution", dark ? Rgb{0.78, 0.62, 0.28} : Rgb{0.45, 0.38, 0.12}, false, false,
-         GraphLegendKind::Level, CitySession::HistorySeries::Pollution},
-    };
-
-    auto sample = [&](const Series &item, int index) -> double {
-        if (item.population) {
-            return static_cast<double>(population_at(*session_, scale, index));
-        }
-        if (item.cash) {
-            return static_cast<double>(session_->cash_flow_history(scale, index));
-        }
-        return session_->history_value(item.history, scale, index);
-    };
+    SeriesSpec series[kSeriesCount];
+    fill_series(dark, series);
 
     const int n = CitySession::kHistoryPoints;
-    for (const Series &item : series) {
-        double min_v = sample(item, 0);
+    for (const SeriesSpec &item : series) {
+        double min_v = sample_series(*session_, item, scale, 0);
         double max_v = min_v;
         for (int i = 1; i < n; ++i) {
-            const double value = sample(item, i);
+            const double value = sample_series(*session_, item, scale, i);
             min_v = std::min(min_v, value);
             max_v = std::max(max_v, value);
         }
@@ -236,7 +337,7 @@ bool GraphsWindow::on_draw(const Cairo::RefPtr<Cairo::Context> &cr)
         cr->set_line_width(item.population ? 2.4 : 1.6);
         for (int i = 0; i < n; ++i) {
             const int index = (n - 1) - i;
-            const double value = sample(item, index);
+            const double value = sample_series(*session_, item, scale, index);
             const double x = left + (n == 1 ? 0 : (plot_w * i) / (n - 1));
             const double y = flat ? (top + plot_h / 2.0)
                                   : (plot_bottom - ((value - min_v) / (max_v - min_v)) * plot_h);
@@ -247,30 +348,6 @@ bool GraphsWindow::on_draw(const Cairo::RefPtr<Cairo::Context> &cr)
             }
         }
         cr->stroke();
-    }
-
-    const int columns = 2;
-    const double row_h = 16;
-    int row = 0;
-    for (const Series &item : series) {
-        const int column = row % columns;
-        const int line = row / columns;
-        const double x = left + column * (plot_w / columns);
-        const double y = plot_bottom + 14 + line * row_h;
-        cr->set_source_rgb(item.color.r, item.color.g, item.color.b);
-        cr->set_line_width(3);
-        cr->move_to(x, y + 4);
-        cr->line_to(x + 16, y + 4);
-        cr->stroke();
-
-        const long newest = static_cast<long>(std::lround(sample(item, 0)));
-        const bool exact = !item.cash || session_->cash_flow_history_exact(scale, 0);
-        const std::string caption = graph_legend_caption(item.name, item.legend, newest, exact);
-        cr->set_source_rgba(fg.get_red(), fg.get_green(), fg.get_blue(), 1);
-        auto layout = create_pango_layout(caption);
-        cr->move_to(x + 22, y - 4);
-        layout->show_in_cairo_context(cr);
-        ++row;
     }
     return true;
 }
