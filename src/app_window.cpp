@@ -855,9 +855,9 @@ void AppWindow::present_scenario_outcome(int outcome)
     const bool won = outcome > 0;
     Gtk::MessageDialog dialog(*this, won ? "Scenario won" : "Scenario lost", false,
                               won ? Gtk::MESSAGE_INFO : Gtk::MESSAGE_WARNING, Gtk::BUTTONS_NONE, true);
-    dialog.set_secondary_text(session_->city_name() + (won ? " is won." : " is lost.") +
-                              " The city is paused.");
+    dialog.set_secondary_text(session_->scenario_outcome_text(won));
     dialog.add_button("_Keep playing", Gtk::RESPONSE_OK);
+    dialog.add_button("Stay _paused", Gtk::RESPONSE_REJECT);
     dialog.add_button("_Scenario list", Gtk::RESPONSE_ACCEPT);
     dialog.set_default_response(Gtk::RESPONSE_OK);
     const int response = dialog.run();
@@ -865,10 +865,15 @@ void AppWindow::present_scenario_outcome(int outcome)
     if (response == Gtk::RESPONSE_ACCEPT) {
         on_play_scenario();
     }
-    // Keep playing, closing the dialog, or cancelling the scenario list
-    // all leave the announcement. A scenario that actually started has
-    // already cleared the pause and chosen its own speed.
-    if (session_->outcome_pause_pending()) {
+    // Stay paused leaves the clock stopped, which is what that button
+    // says. Keep playing, the title-bar close, and cancelling the
+    // scenario list all end the announcement at the previous speed. A
+    // scenario that actually started has already chosen its own speed.
+    if (response == Gtk::RESPONSE_REJECT) {
+        session_->stay_paused_after_outcome();
+        speed_ = session_->speed();
+        sync_option_checks();
+    } else if (session_->outcome_pause_pending()) {
         session_->resume_after_outcome();
         speed_ = session_->speed();
         sync_option_checks();
@@ -1289,6 +1294,7 @@ void AppWindow::grab_screenshot_if_requested()
         400);
 }
 
+#ifdef LUNDUKE_CITY_TEST_HOOKS
 int hostile_review_window_probe(AppWindow &window, int op)
 {
     if (op == 1) {
@@ -1349,3 +1355,4 @@ int hostile_review_window_probe(AppWindow &window, int op)
     }
     return 0;
 }
+#endif

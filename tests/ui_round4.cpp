@@ -18,12 +18,9 @@
 #include <gdk/gdk.h>
 #include <gtk/gtk.h>
 
-#include <csignal>
 #include <cstdlib>
 #include <iostream>
 #include <string>
-#include <sys/wait.h>
-#include <unistd.h>
 #include <vector>
 
 namespace {
@@ -258,17 +255,10 @@ int budget_window_cases()
 
 int main(int argc, char **argv)
 {
-    pid_t xvfb = -1;
-    if (std::getenv("DISPLAY") == nullptr || std::getenv("DISPLAY")[0] == '\0') {
-        xvfb = fork();
-        if (xvfb == 0) {
-            execlp("Xvfb", "Xvfb", ":99", "-screen", "0", "1280x800x24", nullptr);
-            _exit(127);
-        }
-        if (xvfb > 0) {
-            setenv("DISPLAY", ":99", 1);
-            usleep(400000);
-        }
+    const char *display = std::getenv("DISPLAY");
+    if (display == nullptr || display[0] == '\0') {
+        std::cerr << "no DISPLAY; this GUI test must fail rather than skip or start its own server\n";
+        return 1;
     }
     Gtk::Main kit(argc, argv);
     AppWindow window;
@@ -287,9 +277,5 @@ int main(int argc, char **argv)
     }
 
     window.hide();
-    if (xvfb > 0) {
-        kill(xvfb, SIGTERM);
-        waitpid(xvfb, nullptr, 0);
-    }
     return code;
 }

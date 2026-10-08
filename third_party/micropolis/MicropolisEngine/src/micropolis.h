@@ -213,16 +213,41 @@ static const int MISC_HISTORY_LENGTH = 240;
  * miscHist slot for Enable disasters.
  * setValves writes 1–7 and 10–17. Save and load use 8–9 (city time),
  * 50–51 (funds), 52–57 (options, tax, speed), and 58–63 (funding).
- * Index 64 is not read or written by either path. Most classic files
- * leave 0 there. Dullsville's scenario leaves 130, which is leftover
- * data, not a flag. Only the two codes below are honored. Every other
- * value, including 0 and that leftover, means the flag was never stored
+ * Index 64 is the disasters flag only. Do not store the census, the
+ * treasury, or the tax receipt here.
+ *   0  the flag was never stored; disasters stay on
+ *   1  disasters on
+ *   2  disasters off
+ * Most classic files leave 0. Dullsville's scenario leaves 130, which is
+ * leftover data, not a flag. Only the two codes below are honored. Every
+ * other value, including 0 and that leftover, means the flag was absent
  * and disasters stay on.
+ *
+ * Values that do not fit in the classic body are appended in the LCW1
+ * trailer (fileio.cpp), after the city-name block and the cash-flow
+ * block. When that trailer is missing, load uses these classic slots:
+ *   miscHist[2..4]   residential, commercial, and industrial census,
+ *                    signed 16-bit, saturated on save
+ *   miscHist[50..51] treasury, signed 32-bit Mac long, saturated on save
+ *                    so a surplus above $2,147,483,647 cannot come back
+ *                    as debt
  */
 static const int MISC_DISASTERS_SLOT = 64;
 static const short DISASTERS_FILE_ABSENT = 0;
 static const short DISASTERS_FILE_ON = 1;
 static const short DISASTERS_FILE_OFF = 2;
+
+/** Classic signed 16-bit sample. Out-of-range values saturate, they do not wrap. */
+inline short saturateToShort(long long value)
+{
+    if (value > 32767) {
+        return 32767;
+    }
+    if (value < -32768) {
+        return static_cast<short>(-32768);
+    }
+    return static_cast<short>(value);
+}
 
 /**
  * Length of the history tables.
@@ -1088,23 +1113,25 @@ public:
     /**
      * Number of people in the residential zones.
      *
-     * Depends on level of zone development.
+     * Depends on level of zone development. Wide on purpose: a signed
+     * 16-bit counter wraps past about 820 top-density residential zones.
+     * The classic file still stores a saturated short.
      */
-    short resPop;
+    Quad resPop;
 
     /**
      * Commercial zone population.
      *
-     * Depends on level of zone development.
+     * Depends on level of zone development. Same width as resPop.
      */
-    short comPop;
+    Quad comPop;
 
     /**
      * Industrial zone population.
      *
-     * Depends on level of zone development.
+     * Depends on level of zone development. Same width as resPop.
      */
-    short indPop;
+    Quad indPop;
 
     /**
      * Total population.
@@ -1610,6 +1637,14 @@ public:
     /** taxFund from the current rate, population, and land value. */
     void recomputeTaxFund();
 
+    /**
+     * True after a January has computed taxFund and the department
+     * requests, or after a save that stored them. A loaded file with no
+     * receipt leaves this false so the budget does not call that zero
+     * "last January."
+     */
+    bool taxReceiptKnown;
+
     /** Honor miscHist[MISC_DISASTERS_SLOT]. Anything but on/off stays on. */
     void restoreEnableDisasters();
 
@@ -1827,6 +1862,12 @@ private:
 
     // Headless regression test in tests/engine_fixes.cpp.
     friend int lunduke_city_test_vote_problems();
+
+    // Defined only in tests/round5.cpp. Not linked into the game binary.
+    friend Quad lunduke_city_round5_population(Micropolis &sim);
+    friend CityClass lunduke_city_round5_city_class(Micropolis &sim, Quad population);
+    friend void lunduke_city_round5_take10_census(Micropolis &sim);
+    friend void lunduke_city_round5_capture_census(Micropolis &sim);
 
     short getTrafficAverage();
 
@@ -2115,6 +2156,24 @@ public:
 
     /** Name read from the trailer. Meaningful when cityNameStored is true. */
     std::string cityNameStoredText;
+
+    /**
+     * LCW1 trailer decoded by loadFileDir and applied by loadFile after
+     * doSimInit. Absent means use the classic miscHist fields. See the
+     * layout comment above write_wide_city in fileio.cpp. miscHist[64]
+     * is not part of this block.
+     */
+    bool wideFundsValid;
+    Quad wideFundsValue;
+    bool wideCensusValid;
+    Quad wideResPop;
+    Quad wideComPop;
+    Quad wideIndPop;
+    bool wideReceiptValid;
+    Quad wideTaxFund;
+    Quad wideRoadFund;
+    Quad widePoliceFund;
+    Quad wideFireFund;
 
 private:
 
@@ -2436,9 +2495,9 @@ public:
     bool censusSnapshotValid;
     /** Live resPop/comPop/indPop are a finished scan, not a partial one. */
     bool liveCensusComplete;
-    short snapResPop;
-    short snapComPop;
-    short snapIndPop;
+    Quad snapResPop;
+    Quad snapComPop;
+    Quad snapIndPop;
     short snapRoadTotal;
     short snapRailTotal;
     short snapPolicePop;
@@ -2726,7 +2785,7 @@ public:
 
     void spend(int dollars);
 
-    void setFunds(int dollars);
+    void setFunds(Quad dollars);
 
     Quad tickCount();
 

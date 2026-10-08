@@ -520,7 +520,7 @@ ToolResult Micropolis::layWire(int x, int y, ToolEffects *effects)
         }
 
         /* Can't do wire... */
-        toolFailureNotice = MESSAGE_NO_BRIDGE;
+        toolFailureNotice = MESSAGE_NO_POWER_LINE;
         return TOOLRESULT_FAILED;
 
     case ROADS:              /* Wire on Road */

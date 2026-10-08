@@ -182,9 +182,24 @@ static bool save_short(short *buf, int len, FILE *f)
  * Classic .cty files store a 32-bit value in exactly two shorts, with the
  * 16-bit halves swapped (the Mac long the original saver wrote). Quad is
  * 8 bytes on this build, so writing one also covered the next two shorts.
+ * A value outside the signed 32-bit range is saturated. Wrapping it would
+ * turn a treasury above $2,147,483,647 into debt for any reader that only
+ * knows the classic field. The full Quad is also written in the LCW1 trailer.
  */
+static Quad clamp_mac_long(Quad value)
+{
+    if (value > 2147483647LL) {
+        return 2147483647LL;
+    }
+    if (value < -2147483648LL) {
+        return -2147483648LL;
+    }
+    return value;
+}
+
 static void put_mac_long(short *slot, Quad value)
 {
+    value = clamp_mac_long(value);
     const unsigned int bits = (unsigned int)(int)value;
     const unsigned int swapped = ((bits & 0xffffu) << 16) | (bits >> 16);
     slot[0] = (short)(swapped & 0xffffu);
@@ -298,10 +313,16 @@ static bool write_cash_flow_history(FILE *f, const Micropolis *sim)
     return true;
 }
 
+static std::size_t cash_flow_trailer_bytes()
+{
+    const int count = HISTORY_LENGTH / 2;
+    return 4 + (std::size_t)count * 8 + (std::size_t)count;
+}
+
 static bool read_cash_flow_history(Micropolis *sim, const unsigned char *bytes, std::size_t avail)
 {
     const int count = HISTORY_LENGTH / 2;
-    const std::size_t need = 4 + (std::size_t)count * 8 + (std::size_t)count;
+    const std::size_t need = cash_flow_trailer_bytes();
     if (bytes == NULL || avail < need) {
         return false;
     }
@@ -319,6 +340,168 @@ static bool read_cash_flow_history(Micropolis *sim, const unsigned char *bytes, 
         sim->cashFlowHist[i] = (Quad)(long long)bits;
     }
     std::memcpy(sim->cashFlowExact, cursor, (size_t)count);
+    return true;
+}
+
+/**
+ * Wide city trailer, magic "LCW1".
+ *
+ * Appended after the classic 27120-byte body, the optional city-name
+ * trailer ("LCN1"), and the optional cash-flow trailer ("LCF1"). Classic
+ * saves and the eight scenario files omit it. The loader then uses the
+ * classic fields: miscHist[50..51] for the treasury and miscHist[2..4]
+ * for the census. miscHist[64] is the disasters flag and is not used here.
+ *
+ * Little-endian:
+ *   char magic[4] = { 'L','C','W','1' }
+ *   uint16 version = 1
+ *   uint16 flags
+ *     bit 0  totalFunds follows (int64). The classic Mac long is saturated
+ *            to [-2147483648, 2147483647] and is never a wrapped debt.
+ *     bit 1  census follows: resPop, comPop, indPop (int64 each). The
+ *            classic shorts in miscHist[2..4] and the history samples are
+ *            saturated to [-32768, 32767].
+ *     bit 2  last January follows: taxFund, roadFund, policeFund, fireFund
+ *            (int64 each). Absent means the file has no tax receipt.
+ *   int64 fields for the bits that are set, in the order above.
+ */
+static const char kWideCityMagic[4] = {'L', 'C', 'W', '1'};
+static const unsigned int kWideFlagFunds = 1u;
+static const unsigned int kWideFlagCensus = 2u;
+static const unsigned int kWideFlagReceipt = 4u;
+
+static void write_le_u16(unsigned char *out, unsigned int value)
+{
+    out[0] = (unsigned char)(value & 0xffu);
+    out[1] = (unsigned char)((value >> 8) & 0xffu);
+}
+
+static void write_le_i64(unsigned char *out, Quad value)
+{
+    unsigned long long bits = (unsigned long long)(long long)value;
+    for (int b = 0; b < 8; b++) {
+        out[b] = (unsigned char)(bits & 0xffu);
+        bits >>= 8;
+    }
+}
+
+static unsigned int read_le_u16(const unsigned char *in)
+{
+    return (unsigned int)in[0] | ((unsigned int)in[1] << 8);
+}
+
+static Quad read_le_i64(const unsigned char *in)
+{
+    unsigned long long bits = 0;
+    for (int b = 7; b >= 0; b--) {
+        bits = (bits << 8) | in[b];
+    }
+    return (Quad)(long long)bits;
+}
+
+static bool write_wide_city(FILE *f, const Micropolis *sim, Quad funds)
+{
+    unsigned int flags = kWideFlagFunds | kWideFlagCensus;
+    if (sim->taxReceiptKnown) {
+        flags |= kWideFlagReceipt;
+    }
+    unsigned char header[8];
+    header[0] = (unsigned char)kWideCityMagic[0];
+    header[1] = (unsigned char)kWideCityMagic[1];
+    header[2] = (unsigned char)kWideCityMagic[2];
+    header[3] = (unsigned char)kWideCityMagic[3];
+    write_le_u16(header + 4, 1);
+    write_le_u16(header + 6, flags);
+    if (fwrite(header, 1, 8, f) != 8) {
+        return false;
+    }
+    unsigned char number[8];
+    write_le_i64(number, funds);
+    if (fwrite(number, 1, 8, f) != 8) {
+        return false;
+    }
+    const Quad census[3] = {sim->resPop, sim->comPop, sim->indPop};
+    for (int i = 0; i < 3; i++) {
+        write_le_i64(number, census[i]);
+        if (fwrite(number, 1, 8, f) != 8) {
+            return false;
+        }
+    }
+    if ((flags & kWideFlagReceipt) != 0) {
+        const Quad receipt[4] = {sim->taxFund, sim->roadFund, sim->policeFund, sim->fireFund};
+        for (int i = 0; i < 4; i++) {
+            write_le_i64(number, receipt[i]);
+            if (fwrite(number, 1, 8, f) != 8) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static void clear_wide_city(Micropolis *sim)
+{
+    sim->wideFundsValid = false;
+    sim->wideFundsValue = 0;
+    sim->wideCensusValid = false;
+    sim->wideResPop = 0;
+    sim->wideComPop = 0;
+    sim->wideIndPop = 0;
+    sim->wideReceiptValid = false;
+    sim->wideTaxFund = 0;
+    sim->wideRoadFund = 0;
+    sim->widePoliceFund = 0;
+    sim->wideFireFund = 0;
+    sim->taxReceiptKnown = false;
+}
+
+static bool read_wide_city(Micropolis *sim, const unsigned char *bytes, std::size_t avail)
+{
+    if (bytes == NULL || avail < 8) {
+        return false;
+    }
+    if (bytes[0] != kWideCityMagic[0] || bytes[1] != kWideCityMagic[1] ||
+        bytes[2] != kWideCityMagic[2] || bytes[3] != kWideCityMagic[3]) {
+        return false;
+    }
+    const unsigned int version = read_le_u16(bytes + 4);
+    const unsigned int flags = read_le_u16(bytes + 6);
+    if (version != 1) {
+        return false;
+    }
+    std::size_t need = 8;
+    if ((flags & kWideFlagFunds) != 0) {
+        need += 8;
+    }
+    if ((flags & kWideFlagCensus) != 0) {
+        need += 24;
+    }
+    if ((flags & kWideFlagReceipt) != 0) {
+        need += 32;
+    }
+    if (avail < need) {
+        return false;
+    }
+    const unsigned char *cursor = bytes + 8;
+    if ((flags & kWideFlagFunds) != 0) {
+        sim->wideFundsValue = read_le_i64(cursor);
+        sim->wideFundsValid = true;
+        cursor += 8;
+    }
+    if ((flags & kWideFlagCensus) != 0) {
+        sim->wideResPop = read_le_i64(cursor);
+        sim->wideComPop = read_le_i64(cursor + 8);
+        sim->wideIndPop = read_le_i64(cursor + 16);
+        sim->wideCensusValid = true;
+        cursor += 24;
+    }
+    if ((flags & kWideFlagReceipt) != 0) {
+        sim->wideTaxFund = read_le_i64(cursor);
+        sim->wideRoadFund = read_le_i64(cursor + 8);
+        sim->widePoliceFund = read_le_i64(cursor + 16);
+        sim->wideFireFund = read_le_i64(cursor + 24);
+        sim->wideReceiptValid = true;
+    }
     return true;
 }
 
@@ -409,9 +592,11 @@ bool Micropolis::loadFileDir(const char *filename, const char *dir)
     std::memcpy(miscHist, misc.data(), misc.size() * sizeof(short));
     std::memcpy(&map[0][0], tiles.data(), tiles.size() * sizeof(short));
 
-    // 27120 is the classic payload. Newer saves append a city-name trailer.
+    // 27120 is the classic payload. Newer saves append a city-name trailer,
+    // then the cash-flow trailer, then the wide-value trailer.
     cityNameStored = false;
     cityNameStoredText.clear();
+    clear_wide_city(this);
     std::size_t trailer = 27120;
     if (data.size() > 27120) {
         std::string stored;
@@ -426,8 +611,12 @@ bool Micropolis::loadFileDir(const char *filename, const char *dir)
     // Old files only have the capped history byte. A newer trailer, when
     // present, replaces that with the cash flow that was actually collected.
     seedCashFlowHistoryFromMoney();
+    if (data.size() > trailer &&
+        read_cash_flow_history(this, data.data() + trailer, data.size() - trailer)) {
+        trailer += cash_flow_trailer_bytes();
+    }
     if (data.size() > trailer) {
-        read_cash_flow_history(this, data.data() + trailer, data.size() - trailer);
+        read_wide_city(this, data.data() + trailer, data.size() - trailer);
     }
 
     return true;
@@ -531,6 +720,30 @@ bool Micropolis::loadFile(const char *filename)
     restoreEnableDisasters();
     invalidateMaps();
 
+    // doSimInit scanned the map and cleared the January numbers. The wide
+    // trailer, when the file has one, is the value that was saved. A file
+    // without it keeps the classic treasury and the census the scan just
+    // built from the map (the classic shorts are what simLoadInit read
+    // when the trailer census is absent).
+    if (wideFundsValid) {
+        setFunds(wideFundsValue);
+    }
+    if (wideCensusValid) {
+        resPop = wideResPop;
+        comPop = wideComPop;
+        indPop = wideIndPop;
+        captureCensusSnapshot();
+    }
+    if (wideReceiptValid) {
+        taxFund = wideTaxFund;
+        roadFund = wideRoadFund;
+        policeFund = widePoliceFund;
+        fireFund = wideFireFund;
+        taxReceiptKnown = true;
+    } else {
+        taxReceiptKnown = false;
+    }
+
     return true;
 }
 
@@ -626,6 +839,11 @@ bool Micropolis::saveFile(const char *filename)
     /* find the address, cast the ptr to a longPtr, take contents */
 
     put_mac_long(miscHist + 50, funds_for_file);
+    // The live census is wider than these shorts. Saturate so an old
+    // reader sees the largest classic value, not a wrapped negative.
+    miscHist[2] = saturateToShort(resPop);
+    miscHist[3] = saturateToShort(comPop);
+    miscHist[4] = saturateToShort(indPop);
 
     // Two shorts only. miscHist[10] and [11] are crimeRamp and pollutionRamp.
     put_mac_long(miscHist + 8, cityTime);
@@ -657,7 +875,8 @@ bool Micropolis::saveFile(const char *filename)
         save_short(miscHist, MISC_HISTORY_LENGTH / 2, f) &&
         save_short(((short *)&map[0][0]), WORLD_W * WORLD_H, f) &&
         write_city_name(f, cityName) &&
-        write_cash_flow_history(f, this);
+        write_cash_flow_history(f, this) &&
+        write_wide_city(f, this, funds_for_file);
 
     int ioerr = 0;
     if (result && fflush(f) != 0) {

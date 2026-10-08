@@ -1,3 +1,22 @@
+lunduke-city (0.9-6) unstable; urgency=medium
+
+  * A census past 32,767 people, and a treasury past $2,147,483,647,
+    survive save and load. The classic fields are saturated, so an
+    older reader does not turn that surplus into debt. Older city
+    files, including the eight scenarios, still load.
+  * The budget sentence that cuts a department counts this year's
+    taxes together with the cash on hand. A slider that stays on the
+    same percent keeps that sentence.
+  * Last January's taxes and the road, police, and fire bills are
+    stored in the city file. A file that does not have them says so.
+  * After a scenario, Keep playing continues at the previous speed and
+    the announcement says so. Stay paused leaves the clock stopped.
+  * A power line with nowhere to land no longer says it is a bridge.
+  * The package build starts a display when it needs one. The review
+    probes are not in the installed program.
+
+ -- Phil <phil@brushpad.local>  Thu, 08 Oct 2026 21:00:00 +0000
+
 lunduke-city (0.9-5) unstable; urgency=medium
 
   * A new city's difficulty is the difficulty stored in the city file.

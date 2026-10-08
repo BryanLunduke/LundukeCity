@@ -71,6 +71,7 @@ const char *kMessages[] = {
     "Bridge: $50",
     "Rail bridge: $100",
     "Underwater wire: $25",
+    "No place to land a power line.",
 };
 
 const char *kCategories[] = {
