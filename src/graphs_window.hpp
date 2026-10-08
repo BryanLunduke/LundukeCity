@@ -22,8 +22,13 @@ public:
     void present_graphs();
     void sync();
 
+    static constexpr int kSeriesCount = 7;
+
 private:
-    bool on_draw(const Cairo::RefPtr<Cairo::Context> &cr);
+    // Not named on_draw: that would override Gtk::Window and skip the labels.
+    bool on_chart_draw(const Cairo::RefPtr<Cairo::Context> &cr);
+    bool chart_is_dark() const;
+    void refresh_legend();
 
     CitySession *session_ = nullptr;
     Gtk::RadioButtonGroup scale_group_;
@@ -36,4 +41,11 @@ private:
     Gtk::Label funds_;
     Gtk::Label scale_note_;
     Gtk::DrawingArea chart_;
+    // The legend is widgets, not cairo text on the chart. The chart has its
+    // own window; text drawn there in the theme foreground disappeared.
+    Gtk::Label *legend_label_[kSeriesCount] = {};
+    Gtk::DrawingArea *legend_swatch_[kSeriesCount] = {};
+    double swatch_r_[kSeriesCount] = {};
+    double swatch_g_[kSeriesCount] = {};
+    double swatch_b_[kSeriesCount] = {};
 };
