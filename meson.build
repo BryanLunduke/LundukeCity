@@ -6,6 +6,9 @@ project(
   meson_version: '>= 0.60',
 )
 
+# Debian revision. The Meson project version stays 0.9.0.
+lunduke_package_version = '0.9-10'
+
 gtkmm_dep = dependency('gtkmm-3.0')
 thread_dep = dependency('threads')
 lunduke_asset_dir = meson.project_source_root() / 'third_party' / 'micropolis-assets'
@@ -17,6 +20,10 @@ subdir('tests')
 install_data(
   'data/lunduke-city.desktop',
   install_dir: get_option('datadir') / 'applications',
+)
+install_data(
+  'data/lunduke-city.xml',
+  install_dir: get_option('datadir') / 'mime' / 'packages',
 )
 # Icon=lunduke-city. Scalable SVG plus hicolor PNGs.
 install_data(

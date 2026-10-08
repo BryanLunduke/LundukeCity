@@ -8,7 +8,7 @@ Standards-Version: 4.6.2
 
 Package: lunduke-city
 Architecture: amd64
-Depends: ${shlibs:Depends}, ${misc:Depends}, desktop-file-utils, gtk-update-icon-cache
+Depends: ${shlibs:Depends}, ${misc:Depends}, desktop-file-utils, gtk-update-icon-cache, shared-mime-info
 Recommends: libpulse0
 Description: Lunduke City, a gtkmm city-builder for LCOS
  Windowed city-building game for the Lunduke Computer Operating System.

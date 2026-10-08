@@ -31,6 +31,9 @@ private:
     void refresh_legend();
 
     CitySession *session_ = nullptr;
+    // The header and the Population legend both show this census figure.
+    bool have_census_ = false;
+    long shown_population_ = 0;
     Gtk::RadioButtonGroup scale_group_;
     Gtk::RadioButton ten_;
     Gtk::RadioButton long_term_;
@@ -48,4 +51,6 @@ private:
     double swatch_r_[kSeriesCount] = {};
     double swatch_g_[kSeriesCount] = {};
     double swatch_b_[kSeriesCount] = {};
+    double swatch_dash_on_[kSeriesCount] = {};
+    double swatch_dash_off_[kSeriesCount] = {};
 };

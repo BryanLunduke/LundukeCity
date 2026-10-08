@@ -1,9 +1,10 @@
 [Desktop Entry]
 Name=Lunduke City
 Comment=Build and manage a city
-Exec=lunduke-city
+Exec=lunduke-city %f
 Icon=lunduke-city
 Terminal=false
 Type=Application
 Categories=Game;Simulation;
+MimeType=application/x-lunduke-city;
 StartupNotify=true
