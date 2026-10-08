@@ -1,3 +1,19 @@
+lunduke-city (0.9-10) unstable; urgency=medium
+
+  * A saved city opens from the command line and from a file manager.
+    A missing or unreadable file shows an error dialog and stays open.
+    The desktop file accepts a city file, and .cty has a shared MIME type.
+  * Graph lines use separate hues, and each series has its own dash.
+    Cash flow is magenta and pollution is brown, so they are not a second
+    green and a second gold.
+  * The Graphs header and the Population legend both show the census.
+  * Screenshot and demo hooks are compiled out of the release build.
+  * The welcome line says the clock is paused only while it is paused.
+  * Save City proposes the city name, or the current file name, and
+    opens the last folder used.
+
+ -- Phil <phil@brushpad.local>  Fri, 09 Oct 2026 01:30:00 +0000
+
 lunduke-city (0.9-9) unstable; urgency=medium
 
   * The Graphs window names every series beside its color swatch.

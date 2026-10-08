@@ -40,6 +40,9 @@ std::string asset_root()
 {
     static const std::string cached = [] {
         std::vector<std::string> candidates;
+        // Developer override for the asset tree when the binary is not
+        // installed next to share/lunduke-city. This is not a test hook.
+        // Screenshot and demo variables are compiled out of the release build.
         if (const char *env = std::getenv("LUNDUKE_CITY_ASSETS")) {
             if (env[0] != '\0') {
                 candidates.emplace_back(env);

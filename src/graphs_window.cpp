@@ -6,10 +6,12 @@
 
 #include "city_session.hpp"
 #include "graph_legend.hpp"
+#include "graph_palette.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <vector>
 
 #include <gtkmm/button.h>
 #include <gtkmm/grid.h>
@@ -41,20 +43,28 @@ std::string money(long value)
     return (neg ? "-$" : "$") + grouped(neg ? -value : value);
 }
 
-struct Rgb {
+struct SeriesSpec {
+    const char *name;
     double r;
     double g;
     double b;
-};
-
-struct SeriesSpec {
-    const char *name;
-    Rgb color;
+    double dash_on;
+    double dash_off;
     bool population;
     bool cash;
     GraphLegendKind legend;
     CitySession::HistorySeries history;
 };
+
+void apply_dash(const Cairo::RefPtr<Cairo::Context> &cr, double on, double off)
+{
+    if (on <= 0.0 || off <= 0.0) {
+        cr->unset_dash();
+        return;
+    }
+    const std::vector<double> pattern{on, off};
+    cr->set_dash(pattern, 0.0);
+}
 
 long population_at(const CitySession &session, CitySession::HistoryScale scale, int index)
 {
@@ -67,20 +77,32 @@ long population_at(const CitySession &session, CitySession::HistoryScale scale, 
 
 void fill_series(bool dark, SeriesSpec out[GraphsWindow::kSeriesCount])
 {
-    out[0] = SeriesSpec{"Population", dark ? Rgb{0.95, 0.95, 0.95} : Rgb{0.15, 0.15, 0.15}, true, false,
-                        GraphLegendKind::Population, CitySession::HistorySeries::Residential};
-    out[1] = SeriesSpec{"Residential", {0.20, 0.62, 0.28}, false, false, GraphLegendKind::People,
-                        CitySession::HistorySeries::Residential};
-    out[2] = SeriesSpec{"Commercial", {0.20, 0.38, 0.82}, false, false, GraphLegendKind::People,
-                        CitySession::HistorySeries::Commercial};
-    out[3] = SeriesSpec{"Industrial", dark ? Rgb{0.95, 0.78, 0.25} : Rgb{0.72, 0.55, 0.08}, false, false,
-                        GraphLegendKind::People, CitySession::HistorySeries::Industrial};
-    out[4] = SeriesSpec{"Cash flow", {0.10, 0.55, 0.48}, false, true, GraphLegendKind::CashFlow,
-                        CitySession::HistorySeries::CashFlow};
-    out[5] = SeriesSpec{"Crime", {0.80, 0.22, 0.18}, false, false, GraphLegendKind::Level,
-                        CitySession::HistorySeries::Crime};
-    out[6] = SeriesSpec{"Pollution", dark ? Rgb{0.78, 0.62, 0.28} : Rgb{0.45, 0.38, 0.12}, false, false,
-                        GraphLegendKind::Level, CitySession::HistorySeries::Pollution};
+    const GraphLegendKind kinds[GraphsWindow::kSeriesCount] = {
+        GraphLegendKind::Population, GraphLegendKind::People, GraphLegendKind::People, GraphLegendKind::People,
+        GraphLegendKind::CashFlow,   GraphLegendKind::Level,  GraphLegendKind::Level,
+    };
+    const CitySession::HistorySeries histories[GraphsWindow::kSeriesCount] = {
+        CitySession::HistorySeries::Residential, CitySession::HistorySeries::Residential,
+        CitySession::HistorySeries::Commercial,  CitySession::HistorySeries::Industrial,
+        CitySession::HistorySeries::CashFlow,    CitySession::HistorySeries::Crime,
+        CitySession::HistorySeries::Pollution,
+    };
+    for (int i = 0; i < GraphsWindow::kSeriesCount; ++i) {
+        const GraphSeriesStyle &style = kGraphSeries[i];
+        const int r = dark ? style.dark_r : style.light_r;
+        const int g = dark ? style.dark_g : style.light_g;
+        const int b = dark ? style.dark_b : style.light_b;
+        out[i] = SeriesSpec{style.name,
+                            graph_channel(r),
+                            graph_channel(g),
+                            graph_channel(b),
+                            style.dash_on,
+                            style.dash_off,
+                            i == 0,
+                            i == 4,
+                            kinds[i],
+                            histories[i]};
+    }
 }
 
 double sample_series(const CitySession &session, const SeriesSpec &item, CitySession::HistoryScale scale,
@@ -115,6 +137,7 @@ GraphsWindow::GraphsWindow()
     scales_.pack_start(ten_, Gtk::PACK_SHRINK);
     scales_.pack_start(long_term_, Gtk::PACK_SHRINK);
 
+    population_.set_name("graph-population");
     population_.set_halign(Gtk::ALIGN_START);
     funds_.set_halign(Gtk::ALIGN_START);
     scale_note_.set_halign(Gtk::ALIGN_START);
@@ -148,9 +171,11 @@ GraphsWindow::GraphsWindow()
         swatch->set_valign(Gtk::ALIGN_CENTER);
         swatch->set_halign(Gtk::ALIGN_START);
         legend_swatch_[i] = swatch;
-        swatch_r_[i] = specs[i].color.r;
-        swatch_g_[i] = specs[i].color.g;
-        swatch_b_[i] = specs[i].color.b;
+        swatch_r_[i] = specs[i].r;
+        swatch_g_[i] = specs[i].g;
+        swatch_b_[i] = specs[i].b;
+        swatch_dash_on_[i] = specs[i].dash_on;
+        swatch_dash_off_[i] = specs[i].dash_off;
         swatch->signal_draw().connect([this, i](const Cairo::RefPtr<Cairo::Context> &cr) {
             Gtk::DrawingArea *area = legend_swatch_[i];
             const int w = std::max(1, area->get_allocated_width());
@@ -159,6 +184,8 @@ GraphsWindow::GraphsWindow()
             style->render_background(cr, 0, 0, w, h);
             cr->set_source_rgb(swatch_r_[i], swatch_g_[i], swatch_b_[i]);
             cr->set_line_width(3.0);
+            cr->set_line_cap(Cairo::LINE_CAP_ROUND);
+            apply_dash(cr, swatch_dash_on_[i], swatch_dash_off_[i]);
             const double y = h / 2.0;
             cr->move_to(1.0, y);
             cr->line_to(static_cast<double>(std::max(2, w - 1)), y);
@@ -226,11 +253,15 @@ void GraphsWindow::present_graphs()
 void GraphsWindow::sync()
 {
     if (session_ == nullptr) {
+        have_census_ = false;
+        shown_population_ = 0;
         refresh_legend();
         return;
     }
     const CitySession::Evaluation report = session_->evaluation();
-    population_.set_text("Population: " + grouped(report.population));
+    shown_population_ = report.population;
+    have_census_ = true;
+    population_.set_text(graph_legend_caption("Population", GraphLegendKind::Population, shown_population_));
     funds_.set_text("Funds: " + money(session_->funds()));
     if (long_term_.get_active()) {
         scale_note_.set_text("120 yearly samples from the engine history. Each line is scaled to its own range. "
@@ -257,9 +288,11 @@ void GraphsWindow::refresh_legend()
     const auto scale =
         long_term_.get_active() ? CitySession::HistoryScale::Long : CitySession::HistoryScale::Short;
     for (int i = 0; i < kSeriesCount; ++i) {
-        swatch_r_[i] = specs[i].color.r;
-        swatch_g_[i] = specs[i].color.g;
-        swatch_b_[i] = specs[i].color.b;
+        swatch_r_[i] = specs[i].r;
+        swatch_g_[i] = specs[i].g;
+        swatch_b_[i] = specs[i].b;
+        swatch_dash_on_[i] = specs[i].dash_on;
+        swatch_dash_off_[i] = specs[i].dash_off;
         if (legend_swatch_[i] != nullptr) {
             legend_swatch_[i]->queue_draw();
         }
@@ -270,7 +303,12 @@ void GraphsWindow::refresh_legend()
             legend_label_[i]->set_text(specs[i].name);
             continue;
         }
-        const long newest = static_cast<long>(std::lround(sample_series(*session_, specs[i], scale, 0)));
+        // Population in the legend is the same census the header shows, not
+        // the newest history byte. The line still charts the history.
+        long newest = static_cast<long>(std::lround(sample_series(*session_, specs[i], scale, 0)));
+        if (specs[i].population && have_census_) {
+            newest = shown_population_;
+        }
         const bool exact = !specs[i].cash || session_->cash_flow_history_exact(scale, 0);
         legend_label_[i]->set_text(graph_legend_caption(specs[i].name, specs[i].legend, newest, exact));
     }
@@ -333,8 +371,10 @@ bool GraphsWindow::on_chart_draw(const Cairo::RefPtr<Cairo::Context> &cr)
         if (flat) {
             max_v = min_v + 1.0;
         }
-        cr->set_source_rgb(item.color.r, item.color.g, item.color.b);
-        cr->set_line_width(item.population ? 2.4 : 1.6);
+        cr->set_source_rgb(item.r, item.g, item.b);
+        cr->set_line_width(item.population ? 2.6 : 2.0);
+        cr->set_line_cap(Cairo::LINE_CAP_ROUND);
+        apply_dash(cr, item.dash_on, item.dash_off);
         for (int i = 0; i < n; ++i) {
             const int index = (n - 1) - i;
             const double value = sample_series(*session_, item, scale, index);

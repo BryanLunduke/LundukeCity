@@ -19,12 +19,12 @@ lunduke_city_src = files(
   'tools.cpp',
 )
 
-executable(
+lunduke_city_exe = executable(
   'lunduke-city',
   lunduke_city_src,
   dependencies: [gtkmm_dep, micropolis_dep, thread_dep],
   cpp_args: [
-    '-DLUNDUKE_CITY_PACKAGE_VERSION="0.9-9"',
+    '-DLUNDUKE_CITY_PACKAGE_VERSION="' + lunduke_package_version + '"',
   ],
   install: true,
 )

@@ -37,11 +37,23 @@ public:
     AppWindow();
     ~AppWindow() override;
 
+    enum class CityFileOpen {
+        Loaded,
+        Cancelled,
+        Failed,
+    };
+
+    // Same path as Load City, including the unsaved-city question.
+    // A missing or unreadable file shows an error dialog and does not
+    // replace the city. The process stays open.
+    CityFileOpen open_city_file(const std::string &path);
+
 private:
     void build_ui();
     void build_menus();
     void bind_session();
     void refresh();
+    void sync_welcome_clock();
     void sync_option_checks();
     void show_tool_hint();
     void clear_transient_message();
@@ -56,6 +68,7 @@ private:
     bool replace_with_loaded_city(const std::string &path);
     bool replace_with_scenario(int id);
     void on_load_city();
+    CityFileOpen finish_open_city(const std::string &path);
     void on_save_city();
     void on_save_city_as();
     void report_save_failure();

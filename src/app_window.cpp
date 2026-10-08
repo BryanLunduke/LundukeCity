@@ -108,6 +108,38 @@ const char *speed_word(int speed)
     }
 }
 
+// The rest of the tip stays until Dismiss. Only the clock sentence follows
+// the speed that is actually running.
+void point_chooser_at_city_folder(Gtk::FileChooser &chooser, const std::string &save_path)
+{
+    std::string folder;
+    if (!save_path.empty()) {
+        const auto slash = save_path.find_last_of('/');
+        if (slash != std::string::npos && slash > 0) {
+            folder = save_path.substr(0, slash);
+        }
+    }
+    if (folder.empty()) {
+        folder = remembered_city_folder();
+    }
+    if (folder.empty()) {
+        return;
+    }
+    std::error_code ec;
+    if (std::filesystem::is_directory(folder, ec)) {
+        chooser.set_current_folder(folder);
+    }
+}
+
+std::string welcome_line(int speed)
+{
+    const std::string clock = speed <= 0 ? std::string("The clock is paused.")
+                                         : std::string("The clock is running at ") + speed_word(speed) + ".";
+    return "Welcome to Lunduke City. " + clock +
+           " Choose a speed under Options, start a city with "
+           "System -> New City, or pick System -> Play Scenario. Point at a tool to see its name and cost.";
+}
+
 } // namespace
 
 AppWindow::~AppWindow()
@@ -259,9 +291,7 @@ void AppWindow::build_ui()
     welcome_label_.set_line_wrap(true);
     welcome_label_.set_line_wrap_mode(Pango::WRAP_WORD_CHAR);
     welcome_label_.set_max_width_chars(72);
-    welcome_label_.set_text(
-        "Welcome to Lunduke City. The clock is paused. Choose a speed under Options, start a city with "
-        "System -> New City, or pick System -> Play Scenario. Point at a tool to see its name and cost.");
+    welcome_label_.set_text(welcome_line(0));
     welcome_dismiss_.set_halign(Gtk::ALIGN_END);
     welcome_dismiss_.set_valign(Gtk::ALIGN_CENTER);
     welcome_dismiss_.signal_clicked().connect([this] {
@@ -491,6 +521,7 @@ void AppWindow::refresh()
     name_label_.set_text(session_->city_name());
     const int speed = session_->speed();
     date_label_.set_text(std::string(speed_word(speed)) + "   " + session_->date_text());
+    sync_welcome_clock();
     const int years_left = session_->scenario_years_left();
     if (years_left < 0) {
         years_label_.hide();
@@ -678,10 +709,17 @@ void AppWindow::release_query_pin()
     show_tool_hint();
 }
 
+void AppWindow::sync_welcome_clock()
+{
+    const int speed = session_ ? session_->speed() : speed_;
+    welcome_label_.set_text(welcome_line(speed));
+}
+
 void AppWindow::set_speed(int speed)
 {
     speed_ = speed;
     session_->set_speed(speed);
+    sync_welcome_clock();
 }
 
 void AppWindow::center_on_fraction(double fx, double fy)
@@ -861,8 +899,12 @@ void AppWindow::on_new_city()
     close_budget_window();
     ModalPause pause(*this);
     CitySession::NewCitySpec spec;
+#ifdef LUNDUKE_CITY_TEST_HOOKS
     const char *shot = std::getenv("LUNDUKE_CITY_SHOT_NEWCITY");
     const std::string shot_path = shot != nullptr ? shot : "";
+#else
+    const std::string shot_path;
+#endif
     if (!run_new_city_wizard(*this, spec, shot_path)) {
         return;
     }
@@ -934,6 +976,7 @@ void AppWindow::on_rename_city()
     dialog.set_default_size(360, 120);
     dialog.show_all_children();
 
+#ifdef LUNDUKE_CITY_TEST_HOOKS
     const char *shot = std::getenv("LUNDUKE_CITY_SHOT_RENAME");
     if (shot != nullptr && shot[0] != '\0') {
         entry->set_text("Harbor Town");
@@ -944,6 +987,7 @@ void AppWindow::on_rename_city()
             },
             400);
     }
+#endif
 
     while (dialog.run() == Gtk::RESPONSE_OK) {
         if (!CitySession::name_is_usable(entry->get_text())) {
@@ -956,6 +1000,37 @@ void AppWindow::on_rename_city()
         break;
     }
     refresh();
+}
+
+AppWindow::CityFileOpen AppWindow::finish_open_city(const std::string &path)
+{
+    close_budget_window();
+    if (path.empty() || !replace_with_loaded_city(path)) {
+        ModalPause pause(*this);
+        Gtk::MessageDialog error(*this, "Could not load that city file.", false, Gtk::MESSAGE_ERROR,
+                                 Gtk::BUTTONS_OK, true);
+        error.set_title("Could not load city");
+        if (path.empty()) {
+            error.set_secondary_text("That file has no local path.");
+        } else {
+            error.set_secondary_text(path);
+        }
+        error.run();
+        return CityFileOpen::Failed;
+    }
+    const auto slash = path.find_last_of('/');
+    if (slash != std::string::npos) {
+        remember_city_folder(path.substr(0, slash));
+    }
+    return CityFileOpen::Loaded;
+}
+
+AppWindow::CityFileOpen AppWindow::open_city_file(const std::string &path)
+{
+    if (!confirm_unsaved()) {
+        return CityFileOpen::Cancelled;
+    }
+    return finish_open_city(path);
 }
 
 void AppWindow::on_load_city()
@@ -976,15 +1051,12 @@ void AppWindow::on_load_city()
     all->set_name("All files");
     all->add_pattern("*");
     dialog.add_filter(all);
+    point_chooser_at_city_folder(dialog, session_->save_path());
     if (dialog.run() != Gtk::RESPONSE_ACCEPT) {
         return;
     }
-    if (!replace_with_loaded_city(dialog.get_filename())) {
-        Gtk::MessageDialog error(*this, "Could not load that city file.", false, Gtk::MESSAGE_ERROR,
-                                 Gtk::BUTTONS_OK, true);
-        error.run();
-        return;
-    }
+    // The unsaved-city question already ran, before the chooser.
+    finish_open_city(dialog.get_filename());
 }
 
 void AppWindow::report_save_failure()
@@ -1046,6 +1118,8 @@ void AppWindow::on_save_city()
     }
     if (!session_->save_city_as(session_->save_path())) {
         report_save_failure();
+    } else {
+        remember_city_folder(session_->save_path());
     }
     refresh();
 }
@@ -1061,7 +1135,9 @@ void AppWindow::on_save_city_as()
     filter->set_name("City files");
     filter->add_pattern("*.cty");
     dialog.add_filter(filter);
-    dialog.set_current_name("city.cty");
+    const std::string current = session_->save_path();
+    point_chooser_at_city_folder(dialog, current);
+    dialog.set_current_name(proposed_city_filename(session_->city_name(), current));
     std::string path;
     while (dialog.run() == Gtk::RESPONSE_ACCEPT) {
         const std::string chosen = dialog.get_filename();
@@ -1090,6 +1166,8 @@ void AppWindow::on_save_city_as()
     }
     if (!session_->save_city_as(path)) {
         report_save_failure();
+    } else {
+        remember_city_folder(path);
     }
     refresh();
 }
@@ -1177,6 +1255,7 @@ void AppWindow::on_play_scenario()
     content->pack_start(*scroller, Gtk::PACK_EXPAND_WIDGET);
     dialog.show_all_children();
 
+#ifdef LUNDUKE_CITY_TEST_HOOKS
     const char *shot = std::getenv("LUNDUKE_CITY_SHOT_SCENARIO");
     if (shot != nullptr && shot[0] != '\0') {
         Glib::signal_timeout().connect_once(
@@ -1186,6 +1265,7 @@ void AppWindow::on_play_scenario()
             },
             400);
     }
+#endif
 
     if (dialog.run() != Gtk::RESPONSE_OK) {
         return;
@@ -1251,6 +1331,7 @@ void AppWindow::on_about()
 {
     ModalPause pause(*this);
     AboutDialog dialog(*this);
+#ifdef LUNDUKE_CITY_TEST_HOOKS
     const char *shot = std::getenv("LUNDUKE_CITY_SHOT_ABOUT");
     if (shot != nullptr && shot[0] != '\0') {
         Glib::signal_timeout().connect_once(
@@ -1260,11 +1341,13 @@ void AppWindow::on_about()
             },
             400);
     }
+#endif
     dialog.run();
 }
 
 void AppWindow::prepare_demo_if_requested()
 {
+#ifdef LUNDUKE_CITY_TEST_HOOKS
     const char *demo = std::getenv("LUNDUKE_CITY_DEMO");
     if (demo == nullptr || demo[0] == '\0') {
         return;
@@ -1289,6 +1372,7 @@ void AppWindow::prepare_demo_if_requested()
     center_on_fraction((ox + 9) / static_cast<double>(CitySession::kWorldW),
                        (oy + 6) / static_cast<double>(CitySession::kWorldH));
     refresh();
+#endif
 }
 
 void AppWindow::save_widget_png(Gtk::Widget &widget, const char *path)
@@ -1316,6 +1400,7 @@ void AppWindow::save_widget_png(Gtk::Widget &widget, const char *path)
 
 void AppWindow::probe_zoom_if_requested()
 {
+#ifdef LUNDUKE_CITY_TEST_HOOKS
     const char *path = std::getenv("LUNDUKE_CITY_ZOOM_PROBE");
     if (path == nullptr || path[0] == '\0') {
         return;
@@ -1349,10 +1434,12 @@ void AppWindow::probe_zoom_if_requested()
     out << "key_kp_sub " << check_key(GDK_KEY_KP_Subtract, GDK_CONTROL_MASK) << "\n";
     out << "key_equal_no_ctrl " << check_key(GDK_KEY_equal, 0) << "\n";
     map_.set_tile_size(16);
+#endif
 }
 
 void AppWindow::grab_followup_shots()
 {
+#ifdef LUNDUKE_CITY_TEST_HOOKS
     const char *scenario = std::getenv("LUNDUKE_CITY_SHOT_SCENARIO");
     if (scenario != nullptr && scenario[0] != '\0') {
         on_play_scenario();
@@ -1409,10 +1496,12 @@ void AppWindow::grab_followup_shots()
             }
         },
         350);
+#endif
 }
 
 void AppWindow::grab_screenshot_if_requested()
 {
+#ifdef LUNDUKE_CITY_TEST_HOOKS
     probe_zoom_if_requested();
     const char *path = std::getenv("LUNDUKE_CITY_SCREENSHOT");
     if (path == nullptr || path[0] == '\0') {
@@ -1461,6 +1550,7 @@ void AppWindow::grab_screenshot_if_requested()
                 200);
         },
         400);
+#endif
 }
 
 #ifdef LUNDUKE_CITY_TEST_HOOKS
@@ -1614,6 +1704,49 @@ int hostile_review_window_probe(AppWindow &window, int op)
             return 0;
         }
         return window.session_->speed() == 3 && !window.session_->outcome_pause_pending() ? 1 : 0;
+    }
+    if (op == 13) {
+        window.set_speed(3);
+        window.refresh();
+        const std::string tip = window.welcome_label_.get_text();
+        const bool ok = window.welcome_bar_.get_visible() && tip.find("Fast") != std::string::npos &&
+                        tip.find("running") != std::string::npos && tip.find("paused") == std::string::npos &&
+                        window.date_label_.get_text().find("Fast") != std::string::npos;
+        if (!ok) {
+            std::fprintf(stderr, "running welcome '%s' date '%s'\n", tip.c_str(),
+                         window.date_label_.get_text().c_str());
+        }
+        return ok ? 1 : 0;
+    }
+    if (op == 14) {
+        window.set_speed(0);
+        window.refresh();
+        const std::string tip = window.welcome_label_.get_text();
+        const bool ok = tip.find("paused") != std::string::npos && tip.find("running") == std::string::npos &&
+                        window.date_label_.get_text().find("Paused") != std::string::npos;
+        if (!ok) {
+            std::fprintf(stderr, "paused welcome '%s' date '%s'\n", tip.c_str(),
+                         window.date_label_.get_text().c_str());
+        }
+        return ok ? 1 : 0;
+    }
+    if (op == 15) {
+        window.on_save_city_as();
+        return 1;
+    }
+    if (op == 18) {
+        const std::string dir = "/tmp/lunduke-round7-named";
+        const std::string path = dir + "/harbor.cty";
+        std::error_code ec;
+        std::filesystem::create_directories(dir, ec);
+        if (ec || !window.session_->save_city_as(path) || window.session_->save_path() != path) {
+            return 0;
+        }
+        return 1;
+    }
+    if (op == 19) {
+        window.session_->rename_city("Dirty Town");
+        return window.session_->needs_save_prompt() && window.session_->city_name() == "Dirty Town" ? 1 : 0;
     }
     return 0;
 }

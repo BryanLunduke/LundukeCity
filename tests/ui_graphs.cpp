@@ -287,9 +287,39 @@ int main(int argc, char **argv)
             return fail(14, "a graph series name is not next to its swatch");
         }
         if (!text_ink_in(pix, label_rect)) {
-            std::cerr << name << " rect " << label_rect.x << "," << label_rect.y << " " << label_rect.w
-                      << "x" << label_rect.h << " text '" << text << "'\n";
-            return fail(15, "a graph series label does not draw text inside the legend");
+            // A busy display can hand back the window before the labels are
+            // painted. Draw again and read the same rectangle.
+            bool painted = false;
+            for (int attempt = 0; attempt < 8 && !painted; ++attempt) {
+                graphs.present();
+                if (graphs.get_window()) {
+                    graphs.get_window()->raise();
+                }
+                label->queue_draw();
+                graphs.queue_draw();
+                pump();
+                gdk->process_updates(true);
+                if (auto display = graphs.get_display()) {
+                    display->sync();
+                }
+                g_usleep(50 * 1000);
+                pump();
+                try {
+                    pix = Gdk::Pixbuf::create(gdk, 0, 0, graphs.get_allocated_width(),
+                                              graphs.get_allocated_height());
+                } catch (const Glib::Error &) {
+                    continue;
+                }
+                if (!rect_of(*label, graphs, label_rect)) {
+                    continue;
+                }
+                painted = text_ink_in(pix, label_rect);
+            }
+            if (!painted) {
+                std::cerr << name << " rect " << label_rect.x << "," << label_rect.y << " " << label_rect.w
+                          << "x" << label_rect.h << " text '" << text << "'\n";
+                return fail(15, "a graph series label does not draw text inside the legend");
+            }
         }
     }
 

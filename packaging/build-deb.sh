@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build lunduke-city_0.9-9_amd64.deb into packaging/debs/ (repo-local).
+# Build lunduke-city_0.9-10_amd64.deb into packaging/debs/ (repo-local).
 # Does NOT seed lcos-live-07 (Phil seeds by hand into packages.chroot).
 # meson install ships Icon=lunduke-city into hicolor (SVG plus 16/32/48/64/128/256).
 set -eu
@@ -12,7 +12,7 @@ if [ -z "${DISPLAY:-}" ]; then
 fi
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
-VERSION="0.9-9"
+VERSION="0.9-10"
 PKGNAME="lunduke-city_${VERSION}_amd64"
 BUILD="$ROOT/build-deb"
 DEST="$ROOT/packaging/src/lunduke-city"
@@ -56,7 +56,7 @@ Architecture: amd64
 Installed-Size: ${SIZE}
 Maintainer: LCOS <lcos@lunduke.com>
 Homepage: https://lunduke.com
-Depends: ${SHLIBS_DEPS}, desktop-file-utils, gtk-update-icon-cache
+Depends: ${SHLIBS_DEPS}, desktop-file-utils, gtk-update-icon-cache, shared-mime-info
 Recommends: libpulse0
 Description: Lunduke City, a gtkmm city-builder for LCOS
  Windowed city-building game for the Lunduke Computer Operating System.
@@ -75,10 +75,16 @@ if [ "$1" = "configure" ]; then
   if command -v gtk-update-icon-cache >/dev/null 2>&1; then
     gtk-update-icon-cache -q /usr/share/icons/hicolor >/dev/null 2>&1 || true
   fi
+  # application/x-lunduke-city is installed under /usr/share/mime/packages.
+  # shared-mime-info's dpkg trigger runs update-mime-database. Do not call
+  # it here. DEBIAN/triggers activates that interest explicitly, which is
+  # what dh_installmime records for a MIME package.
 fi
 exit 0
 POST
 chmod 0755 "$DEST/DEBIAN/postinst"
+
+cp "$ROOT/debian/lunduke-city.triggers" "$DEST/DEBIAN/triggers"
 
 (
   cd "$DEST"
