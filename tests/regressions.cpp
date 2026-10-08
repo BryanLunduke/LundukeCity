@@ -776,27 +776,50 @@ static int test_hostile_review()
     std::remove(linked.c_str());
     rmdir(sound_dir.c_str());
 
+    // Speed 1 steps the simulator, and therefore sprites, on every 5th pass.
+    // Speed 3 steps on every pass. generateSomeCity() finishes in
+    // initWillStuff(), which reseeds the RNG from the clock. A live tornado
+    // then dies when getRandom(500) == 0, and a disaster can call
+    // makeTornado() and put the lifetime counter back to 200. Either one
+    // freezes the step count after a few moves (the flake was
+    // "sprite steps slow 6 fast 3"). Count the moves themselves: a tornado
+    // with a spent lifetime still walks, and that blow-away roll is skipped.
     auto sprite_steps = [](int speed) {
         Micropolis sim;
         sim.generateSomeCity(2);
+        sim.setEnableDisasters(false);
+        sim.primeRandom(1);
         sim.setSpeed(static_cast<short>(speed));
+        sim.setPasses(1);
+        sim.speedCycle = 0;
         sim.makeTornado();
         SimSprite *sprite = sim.getSprite(SPRITE_TORNADO);
         if (sprite == nullptr) {
             return -1;
         }
-        const int start = sprite->count;
-        // A random birth spot can walk off the map before the count is read.
-        sprite->x = (WORLD_W << 4) / 2;
-        sprite->y = (WORLD_H << 4) / 2;
+        const int home_x = (WORLD_W << 4) / 2;
+        const int home_y = (WORLD_H << 4) / 2;
+        sprite->count = 0;
+        sprite->frame = 1;
+        int steps = 0;
         for (int i = 0; i < 30; ++i) {
+            sprite->x = home_x;
+            sprite->y = home_y;
             sim.simTick();
+            if (sprite->frame == 0 || sim.getSprite(SPRITE_TORNADO) != sprite) {
+                return -1;
+            }
+            if (sprite->x != home_x || sprite->y != home_y) {
+                ++steps;
+            }
         }
-        return start - sprite->count;
+        return steps;
     };
     const int slow_steps = sprite_steps(1);
     const int fast_steps = sprite_steps(3);
-    if (slow_steps < 0 || fast_steps < 20 || slow_steps >= fast_steps || slow_steps > 12) {
+    // 30 ticks, one pass each: cycles 5, 10, ..., 30 move at Slow (6), and
+    // every tick moves at Fast (30).
+    if (slow_steps != 6 || fast_steps != 30) {
         std::fprintf(stderr, "sprite steps slow %d fast %d\n", slow_steps, fast_steps);
         return fail(79, "slow speed did not slow sprites with the simulator");
     }

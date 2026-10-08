@@ -349,6 +349,12 @@ int hostile_review_session_probe(CitySession &session, int op)
         // matches and the map simply has no roads yet.
         return book.road_need > 0 ? 2 : 1;
     }
+    if (op == 21) {
+        // The next park roll is a fountain. initWillStuff() reseeds from
+        // the clock, so a search for that 1-in-5 tile is not deterministic.
+        sim.primeRandom(1);
+        return 0;
+    }
     if (op == 16) {
         // Taxes in hand are what make the road cut affordable. Cash alone
         // would cut the same request much harder.

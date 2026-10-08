@@ -345,26 +345,31 @@ int main()
 
     // Pause leaves animated tiles still. A running tick calls animateTiles()
     // after simTick(), the same follow-up upstream Micropolis front ends use.
-    // Park placement drops a fountain (the animated tile) on one try in five.
+    // A park is a fountain on one roll in five, and initWillStuff() reseeds
+    // from the clock. Prime that roll so the first park is the fountain.
     CitySession animated;
     animated.new_city("Fountain", 21);
     animated.set_speed(0);
     animated.set_disasters(false);
+    if (hostile_review_session_probe(animated, 21) != 0) {
+        return fail(38, "could not prime the park roll");
+    }
     int fountain_x = -1;
     int fountain_y = -1;
-    int planted = 0;
-    for (int y = 0; y < CitySession::kWorldH && fountain_x < 0 && planted < 80; ++y) {
-        for (int x = 0; x < CitySession::kWorldW && planted < 80; ++x) {
+    bool placed = false;
+    for (int y = 0; y < CitySession::kWorldH && !placed; ++y) {
+        for (int x = 0; x < CitySession::kWorldW; ++x) {
             if ((animated.map_value(x, y) & LOMASK) != DIRT) {
                 continue;
             }
             animated.use_tool(TOOL_PARK, x, y);
-            ++planted;
+            placed = true;
             if ((animated.map_value(x, y) & LOMASK) == FOUNTAIN &&
                 (animated.map_value(x, y) & ANIMBIT) != 0) {
                 fountain_x = x;
                 fountain_y = y;
             }
+            break;
         }
     }
     if (fountain_x < 0) {
