@@ -24,6 +24,8 @@ public:
 
 private:
     void set_funding_quietly(Gtk::Scale &scale, int percent);
+    void apply_mode();
+    void restore_open_rates();
 
     CitySession *session_ = nullptr;
     bool updating_ = false;
@@ -38,6 +40,10 @@ private:
     Gtk::Label cash_flow_;
     Gtk::Label funds_;
     Gtk::Label projected_;
+    Gtk::Label closing_note_;
+    Gtk::Label *tax_title_ = nullptr;
+    Gtk::Button dismiss_;
+    Gtk::Button accept_;
 
     Gtk::Label tax_value_;
     Gtk::Scale tax_;

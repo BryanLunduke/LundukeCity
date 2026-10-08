@@ -414,6 +414,7 @@ ToolResult Micropolis::layRail(int x, int y, ToolEffects *effects)
         }
 
         /* Can't do rail... */
+        toolFailureNotice = MESSAGE_NO_BRIDGE;
         return TOOLRESULT_FAILED;
 
     case LHPOWER:             /* Rail on power */
@@ -519,6 +520,7 @@ ToolResult Micropolis::layWire(int x, int y, ToolEffects *effects)
         }
 
         /* Can't do wire... */
+        toolFailureNotice = MESSAGE_NO_BRIDGE;
         return TOOLRESULT_FAILED;
 
     case ROADS:              /* Wire on Road */

@@ -1,3 +1,22 @@
+lunduke-city (0.9-5) unstable; urgency=medium
+
+  * A new city's difficulty is the difficulty stored in the city file.
+    Saving writes the live level, including a city that is still paused.
+  * After a scenario win or loss, Keep playing resumes the speed from
+    before the announcement. The next scenario starts at that speed.
+  * A tax year that the treasury cannot cover says the funding was cut.
+    While a year is waiting, the budget window offers Reset and Collect
+    Taxes. Reset restores the opening rates and leaves the year unpaid.
+    Collect Taxes, and the title-bar close, post the year on screen.
+    A budget opened from the menu still has Cancel and OK.
+  * Outside a tax year, the tax slider is labeled as next year's rate
+    and the dollar line is last January's receipt.
+  * Rail across water costs $100 and a power line across water costs $25.
+    The tool hint and the message bar both say so.
+  * Loading a city and starting a scenario show on the message bar.
+
+ -- LCOS <lcos@lunduke.com>  Thu, 08 Oct 2026 18:30:00 +0000
+
 lunduke-city (0.9-4) unstable; urgency=medium
 
   * A failed save no longer collects an open tax year, and Quit stays in

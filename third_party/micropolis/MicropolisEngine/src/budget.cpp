@@ -225,6 +225,15 @@ void Micropolis::applyFundingLevels()
 
 void Micropolis::doBudgetNow(bool fromMenu)
 {
+    // Remember the request before this function scales a broke city down
+    // to the cash on hand. The sliders then show the affordable share.
+    roadPercentRequested = roadPercent;
+    firePercentRequested = firePercent;
+    policePercentRequested = policePercent;
+    roadFundingTouched = false;
+    fireFundingTouched = false;
+    policeFundingTouched = false;
+
     if (!fromMenu) {
         // Cash on hand before this year's budget is applied. The window
         // shows this as Previous funds. Current funds is totalFunds.

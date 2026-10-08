@@ -1628,6 +1628,18 @@ public:
     /** budgetAnchorFunds holds this year's prior balance. */
     bool budgetAnchorValid;
 
+    /**
+     * Funding the player had set before doBudgetNow scaled a broke city.
+     * The live percent is the share the treasury can pay. The note uses
+     * this request until the player moves that slider.
+     */
+    float roadPercentRequested;
+    float firePercentRequested;
+    float policePercentRequested;
+    bool roadFundingTouched;
+    bool fireFundingTouched;
+    bool policeFundingTouched;
+
     void updateBudget();
 
     void showBudgetWindowAndStartWaiting();

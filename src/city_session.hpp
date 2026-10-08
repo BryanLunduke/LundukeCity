@@ -158,6 +158,9 @@ public:
     void set_road_funding(int percent);
     void set_police_funding(int percent);
     void set_fire_funding(int percent);
+    // Put the sliders back to the rates captured when the book opened.
+    // Does not collect a waiting tax year and does not close the book.
+    void restore_budget_rates(int tax_percent, int road_percent, int police_percent, int fire_percent);
     BudgetBook budget() const;
 
     void set_sound_enabled(bool on);
@@ -238,6 +241,13 @@ public:
     bool cash_flow_history_exact(HistoryScale scale, int index) const;
     // 1 when the scenario was just won, -1 when it was just lost, then 0.
     int take_scenario_outcome();
+    // Speed the city was running at when the last win or loss paused it.
+    int outcome_resume_speed() const { return speed_before_outcome_; }
+    // True after a win or loss until Keep playing, a new scenario, or a
+    // chosen running speed consumes that pause.
+    bool outcome_pause_pending() const { return outcome_paused_; }
+    // Leave the announcement pause and run at outcome_resume_speed().
+    void resume_after_outcome();
 
     // Public-opinion and score data from the last cityEvaluation().
     // update_evaluation() runs that pass; evaluation() only reads it.
@@ -304,6 +314,8 @@ private:
     bool in_callback_ = false;
     bool eval_month_pending_ = false;
     int eval_month_ = -1;
+    int speed_before_outcome_ = 2;
+    bool outcome_paused_ = false;
 
     friend int hostile_review_session_probe(CitySession &session, int op);
 };
