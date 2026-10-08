@@ -331,6 +331,12 @@ void Micropolis::init()
     budgetAwaitingAccept = false;
     budgetAnchorFunds = 0;
     budgetAnchorValid = false;
+    roadPercentRequested = 0.0f;
+    firePercentRequested = 0.0f;
+    policePercentRequested = 0.0f;
+    roadFundingTouched = false;
+    fireFundingTouched = false;
+    policeFundingTouched = false;
 
 
     ////////////////////////////////////////////////////////////////////////

@@ -28,6 +28,7 @@
 #include <gtkmm/treeview.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -439,6 +440,10 @@ void AppWindow::refresh()
         }
     }
     if (const int outcome = session_->take_scenario_outcome()) {
+        const int resume = session_->outcome_resume_speed();
+        if (resume > 0) {
+            paused_from_speed_ = resume;
+        }
         speed_ = session_->speed();
         sync_option_checks();
         if (!scenario_dialog_open_) {
@@ -705,12 +710,47 @@ void AppWindow::on_new_city()
     if (!run_new_city_wizard(*this, spec, shot_path)) {
         return;
     }
+    // Drop the previous city's notice first. A rejected name posts its own
+    // message and must stay on the bar.
+    clear_transient_message();
+    const int serial = session_->message_serial();
     session_->new_city(spec);
+    if (session_->message_serial() != serial) {
+        refresh();
+        return;
+    }
     session_->set_speed(speed_);
     sync_option_checks();
-    clear_transient_message();
     refresh();
     center_on_fraction(0.5, 0.5);
+}
+
+bool AppWindow::replace_with_loaded_city(const std::string &path)
+{
+    clear_transient_message();
+    if (!session_->load_city(path)) {
+        refresh();
+        return false;
+    }
+    speed_ = session_->speed();
+    sync_option_checks();
+    refresh();
+    center_on_fraction(0.5, 0.5);
+    return true;
+}
+
+bool AppWindow::replace_with_scenario(int id)
+{
+    clear_transient_message();
+    if (!session_->load_scenario(id)) {
+        refresh();
+        return false;
+    }
+    speed_ = session_->speed();
+    sync_option_checks();
+    refresh();
+    center_on_fraction(0.5, 0.5);
+    return true;
 }
 
 void AppWindow::on_rename_city()
@@ -783,17 +823,12 @@ void AppWindow::on_load_city()
     if (dialog.run() != Gtk::RESPONSE_ACCEPT) {
         return;
     }
-    if (!session_->load_city(dialog.get_filename())) {
+    if (!replace_with_loaded_city(dialog.get_filename())) {
         Gtk::MessageDialog error(*this, "Could not load that city file.", false, Gtk::MESSAGE_ERROR,
                                  Gtk::BUTTONS_OK, true);
         error.run();
         return;
     }
-    speed_ = session_->speed();
-    sync_option_checks();
-    clear_transient_message();
-    refresh();
-    center_on_fraction(0.5, 0.5);
 }
 
 void AppWindow::report_save_failure()
@@ -810,8 +845,9 @@ void AppWindow::present_scenario_outcome(int outcome)
         return;
     }
     scenario_dialog_open_ = true;
-    if (speed_ != 0) {
-        paused_from_speed_ = speed_;
+    const int resume = session_->outcome_resume_speed();
+    if (resume > 0) {
+        paused_from_speed_ = resume;
     }
     set_speed(0);
     sync_option_checks();
@@ -828,6 +864,14 @@ void AppWindow::present_scenario_outcome(int outcome)
     scenario_dialog_open_ = false;
     if (response == Gtk::RESPONSE_ACCEPT) {
         on_play_scenario();
+    }
+    // Keep playing, closing the dialog, or cancelling the scenario list
+    // all leave the announcement. A scenario that actually started has
+    // already cleared the pause and chosen its own speed.
+    if (session_->outcome_pause_pending()) {
+        session_->resume_after_outcome();
+        speed_ = session_->speed();
+        sync_option_checks();
     }
 }
 
@@ -976,17 +1020,12 @@ void AppWindow::on_play_scenario()
     if (auto selected = view->get_selection()->get_selected()) {
         id = (*selected)[columns.id];
     }
-    if (id < 0 || !    session_->load_scenario(id)) {
+    if (id < 0 || !replace_with_scenario(id)) {
         Gtk::MessageDialog error(*this, "Could not start that scenario.", false, Gtk::MESSAGE_ERROR,
                                  Gtk::BUTTONS_OK, true);
         error.run();
         return;
     }
-    speed_ = session_->speed();
-    sync_option_checks();
-    clear_transient_message();
-    refresh();
-    center_on_fraction(0.5, 0.5);
 }
 
 void AppWindow::on_budget_hidden()
@@ -1248,4 +1287,65 @@ void AppWindow::grab_screenshot_if_requested()
                 200);
         },
         400);
+}
+
+int hostile_review_window_probe(AppWindow &window, int op)
+{
+    if (op == 1) {
+        const std::string path = "/tmp/lunduke-round4-ui-load.cty";
+        if (!window.session_->save_city_as(path)) {
+            return 0;
+        }
+        if (!window.replace_with_loaded_city(path)) {
+            std::remove(path.c_str());
+            return 0;
+        }
+        const std::string first = window.message_label_.get_text();
+        if (!window.replace_with_loaded_city(path)) {
+            std::remove(path.c_str());
+            return 0;
+        }
+        const std::string second = window.message_label_.get_text();
+        std::remove(path.c_str());
+        if (first != "Loaded a saved city." || second != "Loaded a saved city.") {
+            std::fprintf(stderr, "load bar '%s' then '%s'\n", first.c_str(), second.c_str());
+            return 0;
+        }
+        return 1;
+    }
+    if (op == 2) {
+        if (!window.replace_with_scenario(SC_DULLSVILLE)) {
+            return 0;
+        }
+        const std::string dull = window.message_label_.get_text();
+        if (!window.replace_with_scenario(SC_SAN_FRANCISCO)) {
+            std::fprintf(stderr, "scenario bar '%s'\n", dull.c_str());
+            return 0;
+        }
+        const std::string san = window.message_label_.get_text();
+        if (dull != "Playing Dullsville." || san != "Playing San Francisco.") {
+            std::fprintf(stderr, "scenario bar '%s' then '%s'\n", dull.c_str(), san.c_str());
+            return 0;
+        }
+        return 1;
+    }
+    if (op == 3) {
+        window.scenario_dialog_open_ = true;
+        window.session_->set_speed(3);
+        const int after_win = hostile_review_session_probe(*window.session_, 5);
+        const int remembered = window.paused_from_speed_;
+        const bool pending = window.session_->outcome_pause_pending();
+        window.session_->resume_after_outcome();
+        const int resumed = window.session_->speed();
+        window.speed_ = resumed;
+        window.sync_option_checks();
+        window.scenario_dialog_open_ = false;
+        if (after_win != 0 || remembered != 3 || !pending || resumed != 3 || window.speed_ != 3) {
+            std::fprintf(stderr, "win speed %d remembered %d pending %d resumed %d\n", after_win, remembered,
+                         pending ? 1 : 0, resumed);
+            return 0;
+        }
+        return 1;
+    }
+    return 0;
 }

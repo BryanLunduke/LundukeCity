@@ -155,6 +155,8 @@ enum MessageNumber {
     MESSAGE_OFF_MAP, ///< 59: The footprint would leave the map.
     MESSAGE_NO_BRIDGE, ///< 60: A bridge has nowhere to land.
     MESSAGE_BRIDGE_COST, ///< 61: A bridge was built.
+    MESSAGE_RAIL_BRIDGE_COST, ///< 62: Rail was built across water.
+    MESSAGE_UNDERWATER_WIRE, ///< 63: A power line was built across water.
 
-    MESSAGE_LAST = 61, ///< Last valid message
+    MESSAGE_LAST = 63, ///< Last valid message
 };

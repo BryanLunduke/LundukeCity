@@ -636,6 +636,11 @@ bool Micropolis::saveFile(const char *filename)
     miscHist[55] = enableSound;    // flag for the sound on/off
     miscHist[57] = simSpeed;
     miscHist[56] = cityTax;        /* post release */
+    // Live difficulty. setValves is the only other writer, and a paused
+    // or just-generated city may not have reached it yet.
+    if (gameLevel >= LEVEL_FIRST && gameLevel <= LEVEL_LAST) {
+        miscHist[15] = static_cast<short>(gameLevel);
+    }
     miscHist[MISC_DISASTERS_SLOT] = enableDisasters ? DISASTERS_FILE_ON : DISASTERS_FILE_OFF;
 
     put_mac_long(miscHist + 58, (Quad)(int)(police_for_file * 65536));

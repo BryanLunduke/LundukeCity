@@ -69,6 +69,8 @@ const char *kMessages[] = {
     "That would be off the map.",
     "No place to anchor a bridge.",
     "Bridge: $50",
+    "Rail bridge: $100",
+    "Underwater wire: $25",
 };
 
 const char *kCategories[] = {

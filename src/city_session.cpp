@@ -230,6 +230,56 @@ int hostile_review_session_probe(CitySession &session, int op)
         sim.map[20][21] = DIRT;
         return 0;
     }
+    if (op == 12) {
+        // Rail on both banks, and a clear land tile for the dry-land price.
+        // The other axis is dirt so the span uses the banks that were set.
+        sim.map[10][12] = RIVER;
+        sim.map[9][12] = HRAIL | BULLBIT | BURNBIT;
+        sim.map[11][12] = HRAIL | BULLBIT | BURNBIT;
+        sim.map[10][11] = DIRT;
+        sim.map[10][13] = DIRT;
+        sim.map[30][16] = RIVER;
+        sim.map[30][15] = VRAIL | BULLBIT | BURNBIT;
+        sim.map[30][17] = VRAIL | BULLBIT | BURNBIT;
+        sim.map[29][16] = DIRT;
+        sim.map[31][16] = DIRT;
+        sim.map[5][5] = DIRT;
+        return 0;
+    }
+    if (op == 13) {
+        // Conductive tiles the wire tool will anchor to. Horizontal banks
+        // must not be HPOWER; vertical banks must not be VPOWER.
+        sim.map[10][14] = RIVER;
+        sim.map[9][14] = LHPOWER | CONDBIT | BURNBIT | BULLBIT;
+        sim.map[11][14] = LHPOWER | CONDBIT | BURNBIT | BULLBIT;
+        sim.map[10][13] = DIRT;
+        sim.map[10][15] = DIRT;
+        sim.map[14][10] = RIVER;
+        sim.map[14][9] = HPOWER | CONDBIT | BURNBIT | BULLBIT;
+        sim.map[14][11] = HPOWER | CONDBIT | BURNBIT | BULLBIT;
+        sim.map[13][10] = DIRT;
+        sim.map[15][10] = DIRT;
+        sim.map[6][6] = DIRT;
+        return 0;
+    }
+    if (op == 14) {
+        sim.autoBudget = false;
+        sim.taxFund = 0;
+        sim.roadFund = 5000;
+        sim.policeFund = 0;
+        sim.fireFund = 4000;
+        sim.roadPercent = 1.0f;
+        sim.policePercent = 1.0f;
+        sim.firePercent = 1.0f;
+        sim.setFunds(100);
+        sim.doBudgetNow(false);
+        return sim.budgetAwaitingAccept ? static_cast<int>(sim.totalFunds) : -1;
+    }
+    if (op == 15) {
+        sim.budgetAwaitingAccept = false;
+        sim.taxFund = 2000;
+        return static_cast<int>(sim.taxFund);
+    }
     sim.cityAssessedValue = 424242;
     const bool ran = session.note_evaluation_month(session.game_month_index() + 50);
     if (ran || sim.cityAssessedValue != 424242) {
@@ -406,6 +456,13 @@ void CitySession::on_callback(const char *name, const char *params, va_list args
     }
 
     if (which == "winGame" || which == "loseGame") {
+        // The window is told after the clock is already 0. Remember the
+        // speed that was running, once, so Keep playing and the next
+        // scenario can put it back.
+        if (!outcome_paused_) {
+            speed_before_outcome_ = speed_;
+        }
+        outcome_paused_ = true;
         scenario_outcome_ = which == "winGame" ? 1 : -1;
         speed_ = 0;
         engine_->sim.setSpeed(0);
@@ -441,6 +498,7 @@ void CitySession::new_city(const NewCitySpec &spec)
         post_message("Enter a name that is not only spaces.");
         return;
     }
+    outcome_paused_ = false;
     ready_ = false;
     Micropolis &sim = engine_->sim;
     // A budget window left open must not charge this city when it closes.
@@ -472,6 +530,11 @@ void CitySession::new_city(const NewCitySpec &spec)
         level = kLevelEasy;
     }
     sim.setGameLevelFunds(static_cast<GameLevel>(level));
+    // generateSomeCity() already ran setValves at the previous city's
+    // level. Store this city's level before the next even sim cycle.
+    if (sim.miscHist != nullptr && sim.gameLevel >= LEVEL_FIRST && sim.gameLevel <= LEVEL_LAST) {
+        sim.miscHist[15] = static_cast<short>(sim.gameLevel);
+    }
     sim.setSpeed(static_cast<short>(speed_));
     sim.setEnableSound(sound_enabled_);
     // A new city starts with disasters on. A loaded city reads miscHist[64]:
@@ -559,6 +622,7 @@ bool CitySession::load_city(const std::string &path)
     if (loaded_speed > 3) {
         loaded_speed = 3;
     }
+    outcome_paused_ = false;
     speed_ = loaded_speed;
     sound_enabled_ = sim.enableSound;
     sim.budgetAwaitingAccept = false;
@@ -568,8 +632,7 @@ bool CitySession::load_city(const std::string &path)
     dirty_ = false;
     eval_month_ = -1;
     eval_month_pending_ = false;
-    message_ = "Loaded a saved city.";
-    notify();
+    post_message("Loaded a saved city.");
     return true;
 }
 
@@ -615,6 +678,13 @@ bool CitySession::load_scenario(int id)
     }
     sim.budgetAwaitingAccept = false;
     sim.evalPreviewValid = false;
+    // loadScenario() starts at Fast. A win or loss has paused this
+    // session for the announcement; the next city runs at the speed
+    // from before that pause. Any other session speed is kept.
+    if (outcome_paused_) {
+        speed_ = std::max(0, std::min(3, speed_before_outcome_));
+        outcome_paused_ = false;
+    }
     sim.setSpeed(static_cast<short>(speed_));
     sim.setEnableSound(sound_enabled_);
     save_path_.clear();
@@ -622,8 +692,7 @@ bool CitySession::load_scenario(int id)
     dirty_ = false;
     eval_month_ = -1;
     eval_month_pending_ = false;
-    message_ = std::string("Playing ") + entry->def.name + ".";
-    notify();
+    post_message(std::string("Playing ") + entry->def.name + ".");
     return true;
 }
 
@@ -692,6 +761,11 @@ void CitySession::drag_tool(int engine_tool, int from_x, int from_y, int to_x, i
 void CitySession::set_speed(int speed)
 {
     speed = std::max(0, std::min(3, speed));
+    // A running speed is the player's choice. Pause leaves an announcement
+    // pause in place so the next scenario can still restore the old speed.
+    if (speed > 0) {
+        outcome_paused_ = false;
+    }
     if (speed_ == speed && (!ready_ || engine_->sim.simSpeed == speed)) {
         return;
     }
@@ -829,6 +903,16 @@ void CitySession::set_service_funding(int kind, int percent)
     } else if (kind == 2) {
         slot = &sim.firePercent;
     }
+    // The player named this rate, even when doBudgetNow had already scaled
+    // the department to the same number. That request is what the cut
+    // sentence compares, so a slider left on 0% is not "cut to 0%".
+    if (kind == 1) {
+        sim.policeFundingTouched = true;
+    } else if (kind == 2) {
+        sim.fireFundingTouched = true;
+    } else {
+        sim.roadFundingTouched = true;
+    }
     if (*slot == fraction) {
         return;
     }
@@ -851,6 +935,18 @@ void CitySession::set_police_funding(int percent)
 void CitySession::set_fire_funding(int percent)
 {
     set_service_funding(2, percent);
+}
+
+void CitySession::restore_budget_rates(int tax_percent, int road_percent, int police_percent, int fire_percent)
+{
+    set_tax(tax_percent);
+    set_road_funding(road_percent);
+    set_police_funding(police_percent);
+    set_fire_funding(fire_percent);
+    // Restoring the opening rates is not the player asking for a new share.
+    engine_->sim.roadFundingTouched = false;
+    engine_->sim.policeFundingTouched = false;
+    engine_->sim.fireFundingTouched = false;
 }
 
 namespace {
@@ -896,18 +992,27 @@ CitySession::BudgetBook CitySession::budget() const
         book.previous_funds = sim.budgetAnchorValid ? static_cast<long>(sim.budgetAnchorFunds)
                                                     : static_cast<long>(sim.totalFunds);
         book.funds = static_cast<long>(sim.totalFunds) + book.cash_flow;
-        auto cut = [&](float requested, float applied) -> std::string {
-            const int want = percent_of(requested);
+        auto cut = [&](float requested, bool touched, float slider, float applied, Quad fund) -> std::string {
+            if (fund <= 0) {
+                return {};
+            }
+            // An untouched slider still shows the affordable share. The
+            // sentence uses the request from before that scaling. After
+            // the player moves the slider, that position is the request.
+            const int want = percent_of(touched ? slider : requested);
             const int got = percent_of(applied);
-            if (want == got) {
+            if (want <= got) {
                 return {};
             }
             return "cut to " + std::to_string(got) + "% because the city has " +
                    with_commas(static_cast<long>(sim.totalFunds));
         };
-        book.road_note = cut(sim.roadPercent, charge.roadPercent);
-        book.police_note = cut(sim.policePercent, charge.policePercent);
-        book.fire_note = cut(sim.firePercent, charge.firePercent);
+        book.road_note = cut(sim.roadPercentRequested, sim.roadFundingTouched, sim.roadPercent,
+                             charge.roadPercent, sim.roadFund);
+        book.police_note = cut(sim.policePercentRequested, sim.policeFundingTouched, sim.policePercent,
+                               charge.policePercent, sim.policeFund);
+        book.fire_note = cut(sim.firePercentRequested, sim.fireFundingTouched, sim.firePercent,
+                             charge.firePercent, sim.fireFund);
         return book;
     }
 
@@ -1222,6 +1327,16 @@ int CitySession::take_scenario_outcome()
     const int outcome = scenario_outcome_;
     scenario_outcome_ = 0;
     return outcome;
+}
+
+void CitySession::resume_after_outcome()
+{
+    if (!outcome_paused_) {
+        return;
+    }
+    const int resume = speed_before_outcome_;
+    outcome_paused_ = false;
+    set_speed(resume);
 }
 
 void CitySession::update_evaluation()

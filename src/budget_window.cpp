@@ -49,9 +49,19 @@ BudgetWindow::BudgetWindow()
 {
     set_title("Budget");
     set_border_width(12);
-    set_default_size(560, 360);
+    set_default_size(560, 420);
+
+    closing_note_.set_halign(Gtk::ALIGN_START);
+    closing_note_.set_xalign(0);
+    closing_note_.set_line_wrap(true);
+    closing_note_.set_max_width_chars(52);
+    closing_note_.set_no_show_all(true);
+    closing_note_.hide();
 
     signal_delete_event().connect([this](GdkEventAny *) {
+        // Title-bar close collects a waiting year at the rates on screen,
+        // and applies a menu budget the same way OK does.
+        accept_on_hide_ = true;
         hide();
         return true;
     });
@@ -60,10 +70,7 @@ BudgetWindow::BudgetWindow()
             return;
         }
         if (!accept_on_hide_) {
-            session_->set_tax(open_tax_);
-            session_->set_road_funding(open_road_);
-            session_->set_police_funding(open_police_);
-            session_->set_fire_funding(open_fire_);
+            restore_open_rates();
         }
         session_->finish_budget_edit();
     });
@@ -94,37 +101,43 @@ BudgetWindow::BudgetWindow()
     grid->attach(cash_flow_, 0, 1, 1, 1);
     grid->attach(projected_, 1, 1, 1, 1);
 
-    auto add_slider = [&](int row, const char *title, Gtk::Label &value, Gtk::Scale &scale) {
+    auto add_slider = [&](const char *title, Gtk::Label &value, Gtk::Scale &scale) -> Gtk::Label * {
         auto *name = caption(title);
         name->set_margin_top(8);
         root_.pack_start(*name, Gtk::PACK_SHRINK);
         root_.pack_start(value, Gtk::PACK_SHRINK);
         root_.pack_start(scale, Gtk::PACK_SHRINK);
-        (void)row;
+        return name;
     };
 
     root_.pack_start(*grid, Gtk::PACK_SHRINK);
+    root_.pack_start(closing_note_, Gtk::PACK_SHRINK);
     root_.pack_start(*Gtk::manage(new Gtk::Separator()), Gtk::PACK_SHRINK);
-    add_slider(0, "Tax rate", tax_value_, tax_);
-    add_slider(1, "Road fund", road_value_, road_);
-    add_slider(2, "Police fund", police_value_, police_);
-    add_slider(3, "Fire fund", fire_value_, fire_);
+    tax_title_ = add_slider("Tax rate", tax_value_, tax_);
+    add_slider("Road fund", road_value_, road_);
+    add_slider("Police fund", police_value_, police_);
+    add_slider("Fire fund", fire_value_, fire_);
 
     auto *buttons = Gtk::manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL, 8));
     buttons->set_halign(Gtk::ALIGN_END);
-    auto *cancel = Gtk::manage(new Gtk::Button("_Cancel", true));
-    cancel->signal_clicked().connect([this] {
+    dismiss_.signal_clicked().connect([this] {
+        if (session_ != nullptr && session_->budget_pending()) {
+            // Reset puts the opening rates back and leaves the year unpaid.
+            restore_open_rates();
+            sync();
+            return;
+        }
         accept_on_hide_ = false;
         hide();
     });
-    auto *close = Gtk::manage(new Gtk::Button("_Close", true));
-    close->signal_clicked().connect([this] {
+    accept_.signal_clicked().connect([this] {
         accept_on_hide_ = true;
         hide();
     });
-    buttons->pack_start(*cancel, Gtk::PACK_SHRINK);
-    buttons->pack_start(*close, Gtk::PACK_SHRINK);
+    buttons->pack_start(dismiss_, Gtk::PACK_SHRINK);
+    buttons->pack_start(accept_, Gtk::PACK_SHRINK);
     root_.pack_start(*buttons, Gtk::PACK_SHRINK);
+    apply_mode();
 
     add(root_);
 
@@ -169,9 +182,38 @@ void BudgetWindow::present_book()
         open_fire_ = book.fire_percent;
     }
     accept_on_hide_ = true;
+    apply_mode();
     show_all();
     present();
     sync();
+}
+
+void BudgetWindow::restore_open_rates()
+{
+    if (session_ == nullptr) {
+        return;
+    }
+    session_->restore_budget_rates(open_tax_, open_road_, open_police_, open_fire_);
+}
+
+void BudgetWindow::apply_mode()
+{
+    const bool tax_year = session_ != nullptr && session_->budget_pending();
+    if (tax_year) {
+        dismiss_.set_label("_Reset");
+        accept_.set_label("_Collect Taxes");
+        closing_note_.set_text("This year is collected when the window closes.");
+        closing_note_.show();
+    } else {
+        dismiss_.set_label("_Cancel");
+        accept_.set_label("_OK");
+        closing_note_.hide();
+    }
+    dismiss_.set_use_underline(true);
+    accept_.set_use_underline(true);
+    if (tax_title_ != nullptr) {
+        tax_title_->set_text(tax_year ? "Tax rate" : "Next year's tax rate");
+    }
 }
 
 void BudgetWindow::set_funding_quietly(Gtk::Scale &scale, int percent)
@@ -187,7 +229,12 @@ void BudgetWindow::sync()
         return;
     }
     const CitySession::BudgetBook book = session_->budget();
-    taxes_.set_text("Taxes collected: " + money(book.taxes));
+    apply_mode();
+    if (session_->budget_pending()) {
+        taxes_.set_text("Taxes collected: " + money(book.taxes));
+    } else {
+        taxes_.set_text("Last January's taxes: " + money(book.taxes));
+    }
     cash_flow_.set_text(std::string("Cash flow: ") + (book.cash_flow > 0 ? "+" : "") +
                         money(book.cash_flow));
     funds_.set_text("Previous funds: " + money(book.previous_funds));

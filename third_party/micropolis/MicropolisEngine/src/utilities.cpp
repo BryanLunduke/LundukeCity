@@ -218,6 +218,13 @@ void Micropolis::setGameLevelFunds(GameLevel level)
             break;
 
     }
+
+    // setValves is what normally copies the level into the save slot, and
+    // it does not run again until an even sim cycle. Write it now so a
+    // save before that cycle keeps this level.
+    if (miscHist != nullptr && gameLevel >= LEVEL_FIRST && gameLevel <= LEVEL_LAST) {
+        miscHist[15] = static_cast<short>(gameLevel);
+    }
 }
 
 

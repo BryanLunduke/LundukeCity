@@ -52,6 +52,8 @@ private:
     void probe_zoom_if_requested();
 
     void on_new_city();
+    bool replace_with_loaded_city(const std::string &path);
+    bool replace_with_scenario(int id);
     void on_load_city();
     void on_save_city();
     void on_save_city_as();
@@ -120,7 +122,7 @@ private:
     sigc::connection timer_;
     bool updating_checks_ = false;
     int speed_ = 2;
-    std::string tool_hint_ = "Power lines: $5";
+    std::string tool_hint_ = "Power lines: $5. Underwater wire: $25";
     std::string shown_engine_message_;
     int shown_message_serial_ = 0;
     bool scenario_dialog_open_ = false;
@@ -146,4 +148,9 @@ private:
     int quake_strength_ = 0;
     std::chrono::steady_clock::time_point quake_started_{};
     std::chrono::steady_clock::time_point quake_until_{};
+
+    friend int hostile_review_window_probe(AppWindow &window, int op);
 };
+
+// Drives load, scenario, and announcement-pause paths without a file dialog.
+int hostile_review_window_probe(AppWindow &window, int op);

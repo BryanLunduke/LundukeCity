@@ -1384,10 +1384,18 @@ void announce_tool(Micropolis *sim, EditingTool tool, short tileX, short tileY, 
         const short notice = sim->toolFailureNotice != 0 ? sim->toolFailureNotice
                                                           : (short)MESSAGE_CANNOT_BUILD;
         sim->sendMessage(notice, NOWHERE, NOWHERE, false, true);
-    } else if (result == TOOLRESULT_OK && tool == TOOL_ROAD && sim->testBounds(tileX, tileY)) {
-        const int tile = sim->map[tileX][tileY] & LOMASK;
-        if (tile == HBRIDGE || tile == VBRIDGE) {
+    } else if (result == TOOLRESULT_OK && sim->testBounds(tileX, tileY)) {
+        const int raw = sim->map[tileX][tileY];
+        const int tile = raw & LOMASK;
+        // Water crossings are the only road, rail, and wire tiles placed
+        // without BURNBIT. Land tiles of the same character burn.
+        const bool across_water = (raw & BURNBIT) == 0;
+        if (tool == TOOL_ROAD && (tile == HBRIDGE || tile == VBRIDGE)) {
             sim->sendMessage(MESSAGE_BRIDGE_COST, tileX, tileY, false, true);
+        } else if (tool == TOOL_RAILROAD && across_water && (tile == HRAIL || tile == VRAIL)) {
+            sim->sendMessage(MESSAGE_RAIL_BRIDGE_COST, tileX, tileY, false, true);
+        } else if (tool == TOOL_WIRE && across_water && (tile == HPOWER || tile == VPOWER)) {
+            sim->sendMessage(MESSAGE_UNDERWATER_WIRE, tileX, tileY, false, true);
         }
     }
     sim->toolFailureNotice = 0;
