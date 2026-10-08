@@ -10,7 +10,7 @@
 
 const ToolDef kTools[] = {
     {TOOL_BULLDOZER, "Bulldozer", 1, "Bulldozer: $1"},
-    {TOOL_ROAD, "Roads", 10, "Roads: $10"},
+    {TOOL_ROAD, "Roads", 10, "Roads: $10. Bridge: $50"},
     {TOOL_RAILROAD, "Rail", 20, "Rail: $20"},
     {TOOL_WIRE, "Power lines", 5, "Power lines: $5"},
     {TOOL_PARK, "Park", 10, "Park: $10"},

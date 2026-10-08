@@ -320,6 +320,11 @@ std::string sanitize_city_name(const std::string &name)
  * Set the name of the city.
  * @param name New name of the city.
  */
+bool acceptable_city_name(const std::string &name)
+{
+    return !sanitize_city_name(name).empty();
+}
+
 bool Micropolis::setCleanCityName(const std::string &name)
 {
     const std::string clean = sanitize_city_name(name);

@@ -200,11 +200,15 @@ void BudgetWindow::sync()
     set_funding_quietly(fire_, book.fire_percent);
     updating_ = false;
 
+    auto funding_line = [](long need, int percent, long spent, const std::string &note) {
+        if (note.empty()) {
+            return "Request " + money(need) + "    " + std::to_string(percent) + "% = " + money(spent);
+        }
+        return "Request " + money(need) + "    " + note + " = " + money(spent);
+    };
     tax_value_.set_text(std::to_string(book.tax_percent) + "%");
-    road_value_.set_text("Request " + money(book.road_need) + "    " +
-                         std::to_string(book.road_percent) + "% = " + money(book.road_spent));
-    police_value_.set_text("Request " + money(book.police_need) + "    " +
-                           std::to_string(book.police_percent) + "% = " + money(book.police_spent));
-    fire_value_.set_text("Request " + money(book.fire_need) + "    " +
-                         std::to_string(book.fire_percent) + "% = " + money(book.fire_spent));
+    road_value_.set_text(funding_line(book.road_need, book.road_percent, book.road_spent, book.road_note));
+    police_value_.set_text(
+        funding_line(book.police_need, book.police_percent, book.police_spent, book.police_note));
+    fire_value_.set_text(funding_line(book.fire_need, book.fire_percent, book.fire_spent, book.fire_note));
 }

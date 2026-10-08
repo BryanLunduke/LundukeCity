@@ -151,6 +151,10 @@ enum MessageNumber {
     MESSAGE_SCENARIO_DETROIT, ///< 55: Detroit scenario.
     MESSAGE_SCENARIO_BOSTON, ///< Boston scenario.
     MESSAGE_SCENARIO_RIO_DE_JANEIRO, ///< 57: Rio de Janeiro scenario.
+    MESSAGE_CANNOT_BUILD, ///< 58: The tool cannot build on that tile.
+    MESSAGE_OFF_MAP, ///< 59: The footprint would leave the map.
+    MESSAGE_NO_BRIDGE, ///< 60: A bridge has nowhere to land.
+    MESSAGE_BRIDGE_COST, ///< 61: A bridge was built.
 
-    MESSAGE_LAST = 57, ///< Last valid message
+    MESSAGE_LAST = 61, ///< Last valid message
 };

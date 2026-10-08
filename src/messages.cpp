@@ -65,6 +65,10 @@ const char *kMessages[] = {
     "Detroit scenario.",
     "Boston scenario.",
     "Rio scenario.",
+    "Cannot build here.",
+    "That would be off the map.",
+    "No place to anchor a bridge.",
+    "Bridge: $50",
 };
 
 const char *kCategories[] = {

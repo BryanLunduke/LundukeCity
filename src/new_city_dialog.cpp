@@ -100,7 +100,12 @@ bool run_new_city_wizard(Gtk::Window &parent, CitySession::NewCitySpec &spec, co
     name_page->pack_start(*note("Name the new city."), Gtk::PACK_SHRINK);
     auto *name_entry = Gtk::manage(new Gtk::Entry());
     name_entry->set_text("New City");
+    auto *name_error = Gtk::manage(new Gtk::Label("Enter a name that is not only spaces."));
+    name_error->set_halign(Gtk::ALIGN_START);
+    name_error->set_no_show_all(true);
+    name_error->hide();
     name_page->pack_start(*name_entry, Gtk::PACK_SHRINK);
+    name_page->pack_start(*name_error, Gtk::PACK_SHRINK);
     name_page->pack_start(*note("The next step sets the difficulty, the terrain the generator "
                                 "knows how to build, and the map seed."),
                           Gtk::PACK_SHRINK);
@@ -357,8 +362,20 @@ bool run_new_city_wizard(Gtk::Window &parent, CitySession::NewCitySpec &spec, co
         dialog.set_title(page == 0 ? "New City" : (page == 1 ? "New City — Land" : "New City — Generate"));
     };
 
+    auto name_accepted = [&] {
+        if (CitySession::name_is_usable(name_entry->get_text())) {
+            name_error->hide();
+            return true;
+        }
+        name_error->show();
+        name_entry->grab_focus();
+        return false;
+    };
     back->signal_clicked().connect([&] { show_page(page - 1); });
     next->signal_clicked().connect([&] {
+        if (page == 0 && !name_accepted()) {
+            return;
+        }
         if (page == 1 && !seed_accepted()) {
             return;
         }
@@ -366,6 +383,10 @@ bool run_new_city_wizard(Gtk::Window &parent, CitySession::NewCitySpec &spec, co
     });
     cancel->signal_clicked().connect([&] { dialog.response(Gtk::RESPONSE_CANCEL); });
     generate->signal_clicked().connect([&] {
+        if (!name_accepted()) {
+            show_page(0);
+            return;
+        }
         if (!seed_accepted() || !fill_spec()) {
             show_page(1);
             return;

@@ -210,6 +210,21 @@ static const int HISTORY_LENGTH = 480;
 static const int MISC_HISTORY_LENGTH = 240;
 
 /**
+ * miscHist slot for Enable disasters.
+ * setValves writes 1–7 and 10–17. Save and load use 8–9 (city time),
+ * 50–51 (funds), 52–57 (options, tax, speed), and 58–63 (funding).
+ * Index 64 is not read or written by either path. Most classic files
+ * leave 0 there. Dullsville's scenario leaves 130, which is leftover
+ * data, not a flag. Only the two codes below are honored. Every other
+ * value, including 0 and that leftover, means the flag was never stored
+ * and disasters stay on.
+ */
+static const int MISC_DISASTERS_SLOT = 64;
+static const short DISASTERS_FILE_ABSENT = 0;
+static const short DISASTERS_FILE_ON = 1;
+static const short DISASTERS_FILE_OFF = 2;
+
+/**
  * Length of the history tables.
  * @todo It is not really a count of histories, rename to something else?
  */
@@ -1018,6 +1033,9 @@ public:
  *       instead of a floating point fraction
  * @todo Micropolis::crimeMaxX and Micropolis::crimeMaxY seem unused.
  */
+/** True when the name is not empty after the save-file filter. */
+bool acceptable_city_name(const std::string &name);
+
 class Micropolis {
 
 
@@ -1572,6 +1590,30 @@ public:
     void commitBudgetPayment();
 
     /**
+     * What Close will post for the open tax year, without changing
+     * the city. Percents are the shares commitBudgetPayment would keep.
+     */
+    struct BudgetCharge {
+        float roadPercent = 1.0f;
+        float firePercent = 1.0f;
+        float policePercent = 1.0f;
+        Quad roadTaken = 0;
+        Quad fireTaken = 0;
+        Quad policeTaken = 0;
+        Quad posted = 0;
+    };
+    BudgetCharge budgetCharge() const;
+
+    /** Road, police, and fire effects follow the slider percents now. */
+    void applyFundingLevels();
+
+    /** taxFund from the current rate, population, and land value. */
+    void recomputeTaxFund();
+
+    /** Honor miscHist[MISC_DISASTERS_SLOT]. Anything but on/off stays on. */
+    void restoreEnableDisasters();
+
+    /**
      * True while a tax year is waiting for the budget window to close
      * before road, police, and fire are paid.
      */
@@ -1796,6 +1838,12 @@ public:
 
     bool saveFile(const char *filename);
 
+    /** errno from the last failed save, or 0 when the failure had no errno. */
+    int saveErrno;
+
+    /** Short reason for the last failed save, for the error dialog. */
+    std::string saveErrorDetail;
+
     bool loadScenario(Scenario s);
 
     void didLoadScenario();
@@ -1960,6 +2008,18 @@ public:
 
     short getHistory(int historyType, int historyScale,
                      int historyIndex);
+
+    /** Real cash flow for one history sample. Index 0 is the newest. */
+    Quad cashFlowHistory(int historyScale, int historyIndex) const;
+
+    /**
+     * False when the sample was reconstructed from a saturated history
+     * byte (the ±$2,540 cap) and is not the year's actual cash flow.
+     */
+    bool cashFlowHistoryExact(int historyScale, int historyIndex) const;
+
+    /** Fill the parallel history from the capped moneyHist bytes. */
+    void seedCashFlowHistoryFromMoney();
 
     void setHistory(int historyType, int historyScale,
                     int historyIndex, short historyValue);
@@ -2329,6 +2389,12 @@ public:
     bool indCap; ///< Block industrial growth
 
     Quad cashFlow;
+
+    /** Parallel to moneyHist: the cash flow before the history byte is capped. */
+    Quad cashFlowHist[HISTORY_LENGTH / 2];
+
+    /** 1 when cashFlowHist holds the real flow, 0 when it is only the cap. */
+    unsigned char cashFlowExact[HISTORY_LENGTH / 2];
 
     float externalMarket;
 
@@ -2774,10 +2840,14 @@ public:
 
     ToolResult doTool(EditingTool tool, short tileX, short tileY);
 
-    void toolDown(EditingTool tool, short tileX, short tileY);
+    ToolResult toolDown(EditingTool tool, short tileX, short tileY);
 
-    void toolDrag(EditingTool tool, short fromX, short fromY,
+    /** True when at least one tile was placed. */
+    bool toolDrag(EditingTool tool, short fromX, short fromY,
                                     short toX, short toY);
+
+    /** Message number for the failure doTool just returned, or 0. */
+    short toolFailureNotice;
 
     void didTool(const char *name, short x, short y);
 

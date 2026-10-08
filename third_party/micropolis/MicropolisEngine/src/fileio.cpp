@@ -252,7 +252,8 @@ static bool take_shorts(const std::vector<unsigned char> &data, std::size_t &off
     return true;
 }
 
-static bool read_city_name_at(const unsigned char *bytes, std::size_t avail, std::string &name)
+static bool read_city_name_at(const unsigned char *bytes, std::size_t avail, std::string &name,
+                              std::size_t *used)
 {
     if (bytes == NULL || avail < 6) {
         return false;
@@ -266,7 +267,72 @@ static bool read_city_name_at(const unsigned char *bytes, std::size_t avail, std
         return false;
     }
     name.assign(reinterpret_cast<const char *>(bytes + 6), len);
+    if (used != NULL) {
+        *used = static_cast<std::size_t>(6 + len);
+    }
     return true;
+}
+
+static const char kCashFlowMagic[4] = {'L', 'C', 'F', '1'};
+
+static bool write_cash_flow_history(FILE *f, const Micropolis *sim)
+{
+    if (fwrite(kCashFlowMagic, 1, 4, f) != 4) {
+        return false;
+    }
+    const int count = HISTORY_LENGTH / 2;
+    for (int i = 0; i < count; i++) {
+        unsigned long long bits = (unsigned long long)(long long)sim->cashFlowHist[i];
+        unsigned char bytes[8];
+        for (int b = 0; b < 8; b++) {
+            bytes[b] = (unsigned char)(bits & 0xffu);
+            bits >>= 8;
+        }
+        if (fwrite(bytes, 1, 8, f) != 8) {
+            return false;
+        }
+    }
+    if (fwrite(sim->cashFlowExact, 1, (size_t)count, f) != (size_t)count) {
+        return false;
+    }
+    return true;
+}
+
+static bool read_cash_flow_history(Micropolis *sim, const unsigned char *bytes, std::size_t avail)
+{
+    const int count = HISTORY_LENGTH / 2;
+    const std::size_t need = 4 + (std::size_t)count * 8 + (std::size_t)count;
+    if (bytes == NULL || avail < need) {
+        return false;
+    }
+    if (bytes[0] != kCashFlowMagic[0] || bytes[1] != kCashFlowMagic[1] ||
+        bytes[2] != kCashFlowMagic[2] || bytes[3] != kCashFlowMagic[3]) {
+        return false;
+    }
+    const unsigned char *cursor = bytes + 4;
+    for (int i = 0; i < count; i++) {
+        unsigned long long bits = 0;
+        for (int b = 7; b >= 0; b--) {
+            bits = (bits << 8) | cursor[b];
+        }
+        cursor += 8;
+        sim->cashFlowHist[i] = (Quad)(long long)bits;
+    }
+    std::memcpy(sim->cashFlowExact, cursor, (size_t)count);
+    return true;
+}
+
+static void note_save_error(Micropolis *sim, int err, const char *fallback)
+{
+    sim->saveErrno = err;
+    if (err != 0) {
+        const char *text = std::strerror(err);
+        sim->saveErrorDetail = text != NULL ? text : "Could not save the city";
+    } else if (fallback != NULL && fallback[0] != '\0') {
+        sim->saveErrorDetail = fallback;
+    } else {
+        sim->saveErrorDetail = "Could not save the city";
+    }
 }
 
 /**
@@ -346,12 +412,22 @@ bool Micropolis::loadFileDir(const char *filename, const char *dir)
     // 27120 is the classic payload. Newer saves append a city-name trailer.
     cityNameStored = false;
     cityNameStoredText.clear();
+    std::size_t trailer = 27120;
     if (data.size() > 27120) {
         std::string stored;
-        if (read_city_name_at(data.data() + 27120, data.size() - 27120, stored)) {
+        std::size_t used = 0;
+        if (read_city_name_at(data.data() + 27120, data.size() - 27120, stored, &used)) {
             cityNameStored = true;
             cityNameStoredText = stored;
+            trailer = 27120 + used;
         }
+    }
+
+    // Old files only have the capped history byte. A newer trailer, when
+    // present, replaces that with the cash flow that was actually collected.
+    seedCashFlowHistoryFromMoney();
+    if (data.size() > trailer) {
+        read_cash_flow_history(this, data.data() + trailer, data.size() - trailer);
     }
 
     return true;
@@ -452,9 +528,24 @@ bool Micropolis::loadFile(const char *filename)
     policeEffect = (Quad)(policePercent * (float)MAX_POLICE_STATION_EFFECT);
     fireEffect = (Quad)(firePercent * (float)MAX_FIRE_STATION_EFFECT);
 
+    restoreEnableDisasters();
     invalidateMaps();
 
     return true;
+}
+
+
+void Micropolis::restoreEnableDisasters()
+{
+    const short code = miscHist[MISC_DISASTERS_SLOT];
+    if (code == DISASTERS_FILE_OFF) {
+        setEnableDisasters(false);
+    } else {
+        // 0 is every file written before the flag existed. 1 is on.
+        // Any other leftover short in this unused slot stays on too, so a
+        // classic scenario cannot turn disasters off by accident.
+        setEnableDisasters(true);
+    }
 }
 
 
@@ -465,47 +556,76 @@ bool Micropolis::loadFile(const char *filename)
  */
 bool Micropolis::saveFile(const char *filename)
 {
-    if (filename == NULL || filename[0] == '\0') {
+    saveErrno = 0;
+    saveErrorDetail.clear();
+
+    auto fail = [this](int err, const char *fallback) -> bool {
+        note_save_error(this, err, fallback);
         return false;
+    };
+
+    if (filename == NULL || filename[0] == '\0') {
+        return fail(EINVAL, "No file name");
     }
 
     // Refuse anything that is not a real file, including a symlink.
     // fopen() would follow the link and truncate the target.
     struct stat existing;
     if (lstat(filename, &existing) == 0) {
+        if (S_ISLNK(existing.st_mode)) {
+            return fail(0, "Is a symlink");
+        }
+        if (S_ISDIR(existing.st_mode)) {
+            return fail(EISDIR, nullptr);
+        }
         if (!S_ISREG(existing.st_mode)) {
-            return false;
+            return fail(0, "Not a regular file");
         }
     } else if (errno != ENOENT) {
-        return false;
+        return fail(errno, nullptr);
     }
 
     const std::string tmp = std::string(filename) + ".tmp";
     struct stat tmpStat;
-    if (lstat(tmp.c_str(), &tmpStat) == 0 && !S_ISREG(tmpStat.st_mode)) {
-        return false;
+    if (lstat(tmp.c_str(), &tmpStat) == 0) {
+        if (S_ISLNK(tmpStat.st_mode)) {
+            return fail(0, "Is a symlink");
+        }
+        if (!S_ISREG(tmpStat.st_mode)) {
+            return fail(0, "Not a regular file");
+        }
     }
 
     const int fd = open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0644);
     if (fd < 0) {
-        return false;
+        return fail(errno, nullptr);
     }
     FILE *f = fdopen(fd, "wb");
     if (f == NULL) {
+        const int err = errno;
         close(fd);
         unlink(tmp.c_str());
-        return false;
+        return fail(err != 0 ? err : EIO, nullptr);
     }
 
-    // A tax year that is still on the budget window has to be in the file.
-    // The destination is still untouched if the write below fails.
-    commitBudgetPayment();
+    // The tax year is written into the temp file, but it is not taken from
+    // the city until rename has put that file in place. A failed write
+    // restores these header shorts and leaves the open year waiting.
+    short misc_backup[MISC_HISTORY_LENGTH / 2];
+    std::memcpy(misc_backup, miscHist, sizeof(misc_backup));
+
+    const bool pending = budgetAwaitingAccept;
+    const BudgetCharge charge = pending ? budgetCharge() : BudgetCharge();
+    const Quad funds_for_file = pending ? (Quad)totalFunds + charge.posted : (Quad)totalFunds;
+    const float road_for_file = pending ? charge.roadPercent : roadPercent;
+    const float fire_for_file = pending ? charge.firePercent : firePercent;
+    const float police_for_file = pending ? charge.policePercent : policePercent;
 
     /* total funds is a long.....    miscHist is array of ints */
     /* total funds is bien put in the 50th & 51th word of miscHist */
     /* find the address, cast the ptr to a longPtr, take contents */
 
-    put_mac_long(miscHist + 50, totalFunds);
+    put_mac_long(miscHist + 50, funds_for_file);
 
     // Two shorts only. miscHist[10] and [11] are crimeRamp and pollutionRamp.
     put_mac_long(miscHist + 8, cityTime);
@@ -516,12 +636,11 @@ bool Micropolis::saveFile(const char *filename)
     miscHist[55] = enableSound;    // flag for the sound on/off
     miscHist[57] = simSpeed;
     miscHist[56] = cityTax;        /* post release */
+    miscHist[MISC_DISASTERS_SLOT] = enableDisasters ? DISASTERS_FILE_ON : DISASTERS_FILE_OFF;
 
-    /* yayaya */
-
-    put_mac_long(miscHist + 58, (Quad)(int)(policePercent * 65536));
-    put_mac_long(miscHist + 60, (Quad)(int)(firePercent * 65536));
-    put_mac_long(miscHist + 62, (Quad)(int)(roadPercent * 65536));
+    put_mac_long(miscHist + 58, (Quad)(int)(police_for_file * 65536));
+    put_mac_long(miscHist + 60, (Quad)(int)(fire_for_file * 65536));
+    put_mac_long(miscHist + 62, (Quad)(int)(road_for_file * 65536));
 
     bool result =
         save_short(resHist, HISTORY_LENGTH / 2, f) &&
@@ -532,25 +651,42 @@ bool Micropolis::saveFile(const char *filename)
         save_short(moneyHist, HISTORY_LENGTH / 2, f) &&
         save_short(miscHist, MISC_HISTORY_LENGTH / 2, f) &&
         save_short(((short *)&map[0][0]), WORLD_W * WORLD_H, f) &&
-        write_city_name(f, cityName);
+        write_city_name(f, cityName) &&
+        write_cash_flow_history(f, this);
 
+    int ioerr = 0;
     if (result && fflush(f) != 0) {
         result = false;
+        ioerr = errno;
     }
     if (result && fsync(fd) != 0) {
         result = false;
+        ioerr = errno;
     }
     if (fclose(f) != 0) {
         result = false;
+        if (ioerr == 0) {
+            ioerr = errno;
+        }
     }
     if (!result) {
+        std::memcpy(miscHist, misc_backup, sizeof(misc_backup));
         unlink(tmp.c_str());
-        return false;
+        return fail(ioerr != 0 ? ioerr : EIO, nullptr);
     }
     if (rename(tmp.c_str(), filename) != 0) {
+        const int err = errno;
+        std::memcpy(miscHist, misc_backup, sizeof(misc_backup));
         unlink(tmp.c_str());
-        return false;
+        return fail(err != 0 ? err : EIO, nullptr);
     }
+
+    // The new file is the city on disk. Collect the year that was written.
+    if (pending) {
+        commitBudgetPayment();
+    }
+    saveErrno = 0;
+    saveErrorDetail.clear();
     return true;
 }
 

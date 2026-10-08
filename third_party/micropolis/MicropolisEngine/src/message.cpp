@@ -364,6 +364,8 @@ void Micropolis::doScenarioScore(Scenario type)
 
     if (z == MESSAGE_SCENARIO_LOST) {
         doLoseGame();
+    } else if (z == MESSAGE_SCENARIO_WON) {
+        doWinGame();
     }
 }
 

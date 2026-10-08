@@ -7,6 +7,7 @@
 #include "about_dialog.hpp"
 #include "city_session.hpp"
 #include "new_city_dialog.hpp"
+#include "notice_bar.hpp"
 #include "save_path.hpp"
 #include "tools.hpp"
 #include "zoom_keys.hpp"
@@ -47,6 +48,9 @@ AppWindow::AppWindow()
     // Reinforce default icon for WMs that ignore gtk_window_set_default_icon_name.
     set_icon_name("lunduke-city");
     set_default_size(1100, 740);
+    // The side stack is the tool grid, minimap, and demand meters. A shorter
+    // window scrolls that stack instead of clipping the lower tools.
+    set_size_request(800, 700);
     session_ = std::make_unique<CitySession>();
     const CitySession::MapLayer layers[] = {
         CitySession::MapLayer::Power,    CitySession::MapLayer::Water,
@@ -118,7 +122,17 @@ void AppWindow::build_ui()
     side_events_.set_name("side-panel");
     side_events_.set_hexpand(false);
     side_events_.set_halign(Gtk::ALIGN_START);
-    side_events_.set_valign(Gtk::ALIGN_FILL);
+    side_events_.set_valign(Gtk::ALIGN_START);
+    side_scroll_.set_name("side-panel-scroll");
+    side_scroll_.set_policy(Gtk::POLICY_NEVER, Gtk::POLICY_AUTOMATIC);
+    side_scroll_.set_shadow_type(Gtk::SHADOW_NONE);
+    side_scroll_.set_propagate_natural_width(true);
+    side_scroll_.set_propagate_natural_height(true);
+    side_scroll_.set_min_content_height(160);
+    side_scroll_.set_hexpand(false);
+    side_scroll_.set_halign(Gtk::ALIGN_START);
+    side_scroll_.set_vexpand(true);
+    side_scroll_.add(side_events_);
     map_frame_.set_hexpand(true);
 
     scroll_.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
@@ -138,7 +152,7 @@ void AppWindow::build_ui()
     message_events_.add(message_bar_);
     message_events_.set_name("message-bar");
 
-    body_.pack_start(side_events_, Gtk::PACK_SHRINK);
+    body_.pack_start(side_scroll_, Gtk::PACK_SHRINK);
     body_.pack_start(map_frame_, Gtk::PACK_EXPAND_WIDGET);
 
     root_.pack_start(menu_bar_, Gtk::PACK_SHRINK);
@@ -165,7 +179,7 @@ void AppWindow::build_menus()
     system->set_submenu(*system_menu);
     add_item(system_menu, "_New City", GDK_KEY_n, sigc::mem_fun(*this, &AppWindow::on_new_city));
     add_item(system_menu, "_Load City...", GDK_KEY_o, sigc::mem_fun(*this, &AppWindow::on_load_city));
-    add_item(system_menu, "_Save City", GDK_KEY_s, sigc::mem_fun(*this, &AppWindow::on_save_city));
+    add_item(system_menu, "Save _City", GDK_KEY_s, sigc::mem_fun(*this, &AppWindow::on_save_city));
     add_item(system_menu, "Save City _As...", 0, sigc::mem_fun(*this, &AppWindow::on_save_city_as));
     add_item(system_menu, "Play _Scenario…", 0, sigc::mem_fun(*this, &AppWindow::on_play_scenario));
     add_item(system_menu, "_Rename City…", 0, sigc::mem_fun(*this, &AppWindow::on_rename_city));
@@ -178,7 +192,7 @@ void AppWindow::build_menus()
     options->set_submenu(*options_menu);
 
     auto_budget_item_ = Gtk::manage(new Gtk::CheckMenuItem("Auto _budget", true));
-    auto_bulldoze_item_ = Gtk::manage(new Gtk::CheckMenuItem("Auto _bulldoze", true));
+    auto_bulldoze_item_ = Gtk::manage(new Gtk::CheckMenuItem("Auto b_ulldoze", true));
     disasters_item_ = Gtk::manage(new Gtk::CheckMenuItem("Enable _disasters", true));
     auto_goto_item_ = Gtk::manage(new Gtk::CheckMenuItem("Auto-_goto", true));
     mute_item_ = Gtk::manage(new Gtk::CheckMenuItem("_Mute sound", true));
@@ -190,9 +204,9 @@ void AppWindow::build_menus()
     options_menu->append(*Gtk::manage(new Gtk::SeparatorMenuItem()));
 
     Gtk::RadioMenuItem::Group speed_group;
-    const char *speed_labels[] = {"Pause", "Slow", "Medium", "Fast"};
+    const char *speed_labels[] = {"_Pause", "Slo_w", "M_edium", "_Fast"};
     for (int i = 0; i < 4; ++i) {
-        speed_items_[i] = Gtk::manage(new Gtk::RadioMenuItem(speed_group, speed_labels[i]));
+        speed_items_[i] = Gtk::manage(new Gtk::RadioMenuItem(speed_group, speed_labels[i], true));
         options_menu->append(*speed_items_[i]);
     }
     options_menu->append(*Gtk::manage(new Gtk::SeparatorMenuItem()));
@@ -222,7 +236,7 @@ void AppWindow::build_menus()
     add_item(disasters_menu, "F_lood", 0, [this] { session_->disaster_flood(); });
     add_item(disasters_menu, "_Tornado", 0, [this] { session_->disaster_tornado(); });
     add_item(disasters_menu, "_Earthquake", 0, [this] { session_->disaster_earthquake(); });
-    add_item(disasters_menu, "_Monster", 0, [this] { session_->disaster_monster(); });
+    add_item(disasters_menu, "M_onster", 0, [this] { session_->disaster_monster(); });
     add_item(disasters_menu, "_Meltdown", 0, [this] { session_->disaster_meltdown(); });
     menu_bar_.append(*disasters);
 
@@ -259,6 +273,7 @@ void AppWindow::bind_session()
         tool_hint_ = tool->hint;
         // A freshly chosen tool should show its price even if the engine
         // has a standing notice. The next new notice can replace it briefly.
+        shown_message_serial_ = session_->message_serial();
         shown_engine_message_ = session_->message();
         hint_after_ = std::chrono::steady_clock::time_point{};
         show_tool_hint();
@@ -353,12 +368,17 @@ void AppWindow::refresh()
 
     const auto now = std::chrono::steady_clock::now();
     const std::string engine_message = session_->message();
-    if (!engine_message.empty() && engine_message != shown_engine_message_) {
+    const int message_serial = session_->message_serial();
+    const bool notice_expired = hint_after_.time_since_epoch().count() == 0 || now >= hint_after_;
+    const NoticeDecision notice =
+        decide_notice(message_serial, shown_message_serial_, notice_expired, query_pinned_);
+    if (notice.show_notice && !engine_message.empty()) {
+        shown_message_serial_ = message_serial;
         shown_engine_message_ = engine_message;
         message_label_.set_text(engine_message);
         hint_after_ = now + std::chrono::seconds(4);
         query_pinned_ = false;
-    } else if (hint_after_.time_since_epoch().count() == 0 || now >= hint_after_) {
+    } else if (notice.show_hint) {
         message_label_.set_text(tool_hint_);
     }
 
@@ -418,6 +438,13 @@ void AppWindow::refresh()
             overlay->sync();
         }
     }
+    if (const int outcome = session_->take_scenario_outcome()) {
+        speed_ = session_->speed();
+        sync_option_checks();
+        if (!scenario_dialog_open_) {
+            Glib::signal_idle().connect_once([this, outcome] { present_scenario_outcome(outcome); });
+        }
+    }
     sound_.set_muted(!session_->sound_enabled());
     for (const auto &name : session_->take_sounds()) {
         sound_.play(name);
@@ -459,6 +486,9 @@ void AppWindow::show_tool_hint()
 void AppWindow::clear_transient_message()
 {
     shown_engine_message_.clear();
+    if (session_) {
+        shown_message_serial_ = session_->message_serial();
+    }
     hint_after_ = {};
     query_pinned_ = false;
     if (query_dialog_) {
@@ -696,10 +726,15 @@ void AppWindow::on_rename_city()
     auto *entry = Gtk::manage(new Gtk::Entry());
     entry->set_text(session_->city_name());
     entry->set_activates_default(true);
+    auto *name_error = Gtk::manage(new Gtk::Label("Enter a name that is not only spaces."));
+    name_error->set_halign(Gtk::ALIGN_START);
+    name_error->set_no_show_all(true);
+    name_error->hide();
     content->set_border_width(12);
     content->set_spacing(6);
     content->pack_start(*label, Gtk::PACK_SHRINK);
     content->pack_start(*entry, Gtk::PACK_SHRINK);
+    content->pack_start(*name_error, Gtk::PACK_SHRINK);
     dialog.set_default_size(360, 120);
     dialog.show_all_children();
 
@@ -714,10 +749,16 @@ void AppWindow::on_rename_city()
             400);
     }
 
-    if (dialog.run() != Gtk::RESPONSE_OK) {
-        return;
+    while (dialog.run() == Gtk::RESPONSE_OK) {
+        if (!CitySession::name_is_usable(entry->get_text())) {
+            name_error->show();
+            entry->grab_focus();
+            continue;
+        }
+        name_error->hide();
+        session_->rename_city(entry->get_text());
+        break;
     }
-    session_->rename_city(entry->get_text());
     refresh();
 }
 
@@ -748,11 +789,46 @@ void AppWindow::on_load_city()
         error.run();
         return;
     }
-    session_->set_speed(speed_);
+    speed_ = session_->speed();
     sync_option_checks();
     clear_transient_message();
     refresh();
     center_on_fraction(0.5, 0.5);
+}
+
+void AppWindow::report_save_failure()
+{
+    const std::string detail = session_ ? session_->message() : std::string();
+    Gtk::MessageDialog error(*this, detail.empty() ? "Could not save the city." : detail, false,
+                             Gtk::MESSAGE_ERROR, Gtk::BUTTONS_OK, true);
+    error.run();
+}
+
+void AppWindow::present_scenario_outcome(int outcome)
+{
+    if (outcome == 0 || !session_ || scenario_dialog_open_) {
+        return;
+    }
+    scenario_dialog_open_ = true;
+    if (speed_ != 0) {
+        paused_from_speed_ = speed_;
+    }
+    set_speed(0);
+    sync_option_checks();
+    ModalPause pause(*this);
+    const bool won = outcome > 0;
+    Gtk::MessageDialog dialog(*this, won ? "Scenario won" : "Scenario lost", false,
+                              won ? Gtk::MESSAGE_INFO : Gtk::MESSAGE_WARNING, Gtk::BUTTONS_NONE, true);
+    dialog.set_secondary_text(session_->city_name() + (won ? " is won." : " is lost.") +
+                              " The city is paused.");
+    dialog.add_button("_Keep playing", Gtk::RESPONSE_OK);
+    dialog.add_button("_Scenario list", Gtk::RESPONSE_ACCEPT);
+    dialog.set_default_response(Gtk::RESPONSE_OK);
+    const int response = dialog.run();
+    scenario_dialog_open_ = false;
+    if (response == Gtk::RESPONSE_ACCEPT) {
+        on_play_scenario();
+    }
 }
 
 void AppWindow::on_save_city()
@@ -761,7 +837,9 @@ void AppWindow::on_save_city()
         on_save_city_as();
         return;
     }
-    session_->save_city_as(session_->save_path());
+    if (!session_->save_city_as(session_->save_path())) {
+        report_save_failure();
+    }
     refresh();
 }
 
@@ -804,9 +882,7 @@ void AppWindow::on_save_city_as()
         return;
     }
     if (!session_->save_city_as(path)) {
-        Gtk::MessageDialog error(*this, "Could not save the city.", false, Gtk::MESSAGE_ERROR,
-                                 Gtk::BUTTONS_OK, true);
-        error.run();
+        report_save_failure();
     }
     refresh();
 }
@@ -900,13 +976,13 @@ void AppWindow::on_play_scenario()
     if (auto selected = view->get_selection()->get_selected()) {
         id = (*selected)[columns.id];
     }
-    if (id < 0 || !session_->load_scenario(id)) {
+    if (id < 0 || !    session_->load_scenario(id)) {
         Gtk::MessageDialog error(*this, "Could not start that scenario.", false, Gtk::MESSAGE_ERROR,
                                  Gtk::BUTTONS_OK, true);
         error.run();
         return;
     }
-    session_->set_speed(speed_);
+    speed_ = session_->speed();
     sync_option_checks();
     clear_transient_message();
     refresh();

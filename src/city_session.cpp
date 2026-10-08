@@ -167,6 +167,69 @@ int hostile_review_session_probe(CitySession &session, int op)
         sim.setSpeed(3);
         return 0;
     }
+    if (op == 3) {
+        sim.roadFund = 1000;
+        sim.roadSpend = 1000;
+        sim.roadPercent = 1.0f;
+        sim.fireFund = 0;
+        sim.policeFund = 0;
+        sim.updateFundEffects();
+        return static_cast<int>(sim.roadEffect);
+    }
+    if (op == 4) {
+        return static_cast<int>(sim.roadEffect);
+    }
+    if (op == 5) {
+        sim.doWinGame();
+        return session.speed();
+    }
+    if (op == 6) {
+        sim.doLoseGame();
+        return session.speed();
+    }
+    if (op == 8) {
+        sim.autoBudget = false;
+        sim.taxFund = 2000;
+        sim.roadFund = 400;
+        sim.policeFund = 0;
+        sim.fireFund = 0;
+        sim.roadPercent = 1.0f;
+        sim.policePercent = 0.0f;
+        sim.firePercent = 0.0f;
+        sim.setFunds(8000);
+        sim.budgetAnchorFunds = 8000;
+        sim.budgetAnchorValid = true;
+        sim.doBudgetNow(false);
+        return sim.budgetAwaitingAccept ? static_cast<int>(sim.totalFunds) : -1;
+    }
+    if (op == 9) {
+        sim.autoBudget = false;
+        sim.taxFund = 0;
+        sim.roadFund = 5000;
+        sim.policeFund = 0;
+        sim.fireFund = 0;
+        sim.roadPercent = 1.0f;
+        sim.policePercent = 0.0f;
+        sim.firePercent = 0.0f;
+        sim.setFunds(100);
+        sim.doBudgetNow(false);
+        sim.roadPercent = 1.0f;
+        return sim.budgetAwaitingAccept ? 0 : 1;
+    }
+    if (op == 10) {
+        sim.map[10][10] = RIVER;
+        sim.map[9][10] = ROADS | BULLBIT | BURNBIT;
+        sim.map[11][10] = ROADS | BULLBIT | BURNBIT;
+        return 0;
+    }
+    if (op == 11) {
+        sim.map[20][20] = RIVER;
+        sim.map[19][20] = DIRT;
+        sim.map[21][20] = DIRT;
+        sim.map[20][19] = DIRT;
+        sim.map[20][21] = DIRT;
+        return 0;
+    }
     sim.cityAssessedValue = 424242;
     const bool ran = session.note_evaluation_month(session.game_month_index() + 50);
     if (ran || sim.cityAssessedValue != 424242) {
@@ -210,6 +273,25 @@ void CitySession::notify()
     }
 }
 
+void CitySession::post_message(std::string text)
+{
+    message_ = std::move(text);
+    ++message_serial_;
+    notify();
+}
+
+void CitySession::mark_dirty()
+{
+    if (ready_) {
+        dirty_ = true;
+    }
+}
+
+bool CitySession::name_is_usable(const std::string &name)
+{
+    return acceptable_city_name(name);
+}
+
 void CitySession::on_callback(const char *name, const char *params, va_list args)
 {
     struct CallbackGuard {
@@ -240,8 +322,7 @@ void CitySession::on_callback(const char *name, const char *params, va_list args
             if (*p == 'd') {
                 number = take_int();
             }
-            message_ = message_for_number(number);
-            notify();
+            post_message(message_for_number(number));
         }
         return;
     }
@@ -324,10 +405,23 @@ void CitySession::on_callback(const char *name, const char *params, va_list args
         return;
     }
 
+    if (which == "winGame" || which == "loseGame") {
+        scenario_outcome_ = which == "winGame" ? 1 : -1;
+        speed_ = 0;
+        engine_->sim.setSpeed(0);
+        mark_dirty();
+        notify();
+        return;
+    }
+
     if (which == "didntLoadCity" || which == "didntSaveCity") {
         const char *msg = (params != nullptr && params[0] == 's') ? take_string() : "";
-        message_ = std::string(which == "didntLoadCity" ? "Could not load " : "Could not save ") + msg;
-        notify();
+        std::string text = std::string(which == "didntLoadCity" ? "Could not load " : "Could not save ") + msg;
+        if (which == "didntSaveCity" && !engine_->sim.saveErrorDetail.empty()) {
+            text += ": ";
+            text += engine_->sim.saveErrorDetail;
+        }
+        post_message(std::move(text));
     }
 }
 
@@ -343,6 +437,10 @@ void CitySession::new_city(const std::string &name, int seed)
 
 void CitySession::new_city(const NewCitySpec &spec)
 {
+    if (!spec.name.empty() && !name_is_usable(spec.name)) {
+        post_message("Enter a name that is not only spaces.");
+        return;
+    }
     ready_ = false;
     Micropolis &sim = engine_->sim;
     // A budget window left open must not charge this city when it closes.
@@ -376,7 +474,8 @@ void CitySession::new_city(const NewCitySpec &spec)
     sim.setGameLevelFunds(static_cast<GameLevel>(level));
     sim.setSpeed(static_cast<short>(speed_));
     sim.setEnableSound(sound_enabled_);
-    // A new city follows disasters. A loaded city keeps the flag in the file.
+    // A new city starts with disasters on. A loaded city reads miscHist[64]:
+    // 1 is on, 2 is off, and every other value (including 0) stays on.
     sim.setAutoGoto(true);
     // The last city's road, police, and fire rates must not bill this map.
     sim.budgetAwaitingAccept = false;
@@ -417,6 +516,7 @@ void CitySession::rename_city(const std::string &name)
         }
     }
     if (clean.empty()) {
+        post_message("Enter a name that is not only spaces.");
         return;
     }
     const std::string before = engine_->sim.cityName;
@@ -452,7 +552,14 @@ bool CitySession::load_city(const std::string &path)
         notify();
         return false;
     }
-    sim.setSpeed(static_cast<short>(speed_));
+    int loaded_speed = static_cast<int>(sim.simSpeed);
+    if (loaded_speed < 0) {
+        loaded_speed = 0;
+    }
+    if (loaded_speed > 3) {
+        loaded_speed = 3;
+    }
+    speed_ = loaded_speed;
     sound_enabled_ = sim.enableSound;
     sim.budgetAwaitingAccept = false;
     sim.evalPreviewValid = false;
@@ -523,15 +630,21 @@ bool CitySession::load_scenario(int id)
 bool CitySession::save_city_as(const std::string &path)
 {
     message_.clear();
-    // saveCityAs reports failure through the callback hook.
-    engine_->sim.saveCityAs(path.c_str());
-    if (message_.rfind("Could not save", 0) == 0) {
+    // saveCityAs reports failure through the callback hook, including the
+    // operating-system reason captured on the failing call.
+    if (!engine_->sim.saveCityAs(path.c_str())) {
+        if (message_.rfind("Could not save", 0) != 0) {
+            std::string text = "Could not save " + path;
+            if (!engine_->sim.saveErrorDetail.empty()) {
+                text += ": " + engine_->sim.saveErrorDetail;
+            }
+            post_message(std::move(text));
+        }
         return false;
     }
     save_path_ = path;
     dirty_ = false;
-    message_ = "City saved.";
-    notify();
+    post_message("City saved.");
     return true;
 }
 
@@ -554,9 +667,9 @@ void CitySession::use_tool(int engine_tool, int tile_x, int tile_y)
     if (!ready_) {
         return;
     }
-    engine_->sim.toolDown(static_cast<EditingTool>(engine_tool),
-                          static_cast<short>(tile_x), static_cast<short>(tile_y));
-    if (engine_tool != TOOL_QUERY) {
+    const ToolResult result = engine_->sim.toolDown(static_cast<EditingTool>(engine_tool),
+                                                    static_cast<short>(tile_x), static_cast<short>(tile_y));
+    if (result == TOOLRESULT_OK && engine_tool != TOOL_QUERY) {
         dirty_ = true;
     }
     notify();
@@ -567,10 +680,10 @@ void CitySession::drag_tool(int engine_tool, int from_x, int from_y, int to_x, i
     if (!ready_) {
         return;
     }
-    engine_->sim.toolDrag(static_cast<EditingTool>(engine_tool),
-                          static_cast<short>(from_x), static_cast<short>(from_y),
-                          static_cast<short>(to_x), static_cast<short>(to_y));
-    if (engine_tool != TOOL_QUERY) {
+    const bool placed = engine_->sim.toolDrag(static_cast<EditingTool>(engine_tool),
+                                              static_cast<short>(from_x), static_cast<short>(from_y),
+                                              static_cast<short>(to_x), static_cast<short>(to_y));
+    if (placed) {
         dirty_ = true;
     }
     notify();
@@ -578,9 +691,14 @@ void CitySession::drag_tool(int engine_tool, int from_x, int from_y, int to_x, i
 
 void CitySession::set_speed(int speed)
 {
-    speed_ = std::max(0, std::min(3, speed));
+    speed = std::max(0, std::min(3, speed));
+    if (speed_ == speed && (!ready_ || engine_->sim.simSpeed == speed)) {
+        return;
+    }
+    speed_ = speed;
     if (ready_) {
         engine_->sim.setSpeed(static_cast<short>(speed_));
+        dirty_ = true;
     }
 }
 
@@ -618,7 +736,11 @@ int CitySession::game_month_index() const
 
 void CitySession::set_auto_budget(bool on)
 {
+    if (engine_->sim.autoBudget == on) {
+        return;
+    }
     engine_->sim.setAutoBudget(on);
+    mark_dirty();
 }
 
 bool CitySession::auto_budget() const
@@ -628,7 +750,11 @@ bool CitySession::auto_budget() const
 
 void CitySession::set_auto_bulldoze(bool on)
 {
+    if (engine_->sim.autoBulldoze == on) {
+        return;
+    }
     engine_->sim.setAutoBulldoze(on);
+    mark_dirty();
 }
 
 bool CitySession::auto_bulldoze() const
@@ -638,7 +764,11 @@ bool CitySession::auto_bulldoze() const
 
 void CitySession::set_disasters(bool on)
 {
+    if (engine_->sim.enableDisasters == on) {
+        return;
+    }
     engine_->sim.setEnableDisasters(on);
+    mark_dirty();
 }
 
 bool CitySession::disasters() const
@@ -648,7 +778,11 @@ bool CitySession::disasters() const
 
 void CitySession::set_auto_goto(bool on)
 {
+    if (engine_->sim.autoGoto == on) {
+        return;
+    }
     engine_->sim.setAutoGoto(on);
+    mark_dirty();
 }
 
 bool CitySession::auto_goto() const
@@ -664,7 +798,14 @@ void CitySession::set_tax(int percent)
     if (percent > 20) {
         percent = 20;
     }
+    if (engine_->sim.cityTax == percent) {
+        return;
+    }
     engine_->sim.setCityTax(static_cast<short>(percent));
+    if (engine_->sim.budgetAwaitingAccept) {
+        engine_->sim.recomputeTaxFund();
+    }
+    mark_dirty();
 }
 
 int CitySession::tax() const
@@ -688,9 +829,13 @@ void CitySession::set_service_funding(int kind, int percent)
     } else if (kind == 2) {
         slot = &sim.firePercent;
     }
+    if (*slot == fraction) {
+        return;
+    }
     // Effects wait until the budget window commits. Moving a slider used
     // to drop road and coverage before any money moved.
     *slot = fraction;
+    mark_dirty();
 }
 
 void CitySession::set_road_funding(int percent)
@@ -734,8 +879,6 @@ CitySession::BudgetBook CitySession::budget() const
     const Micropolis &sim = engine_->sim;
     BudgetBook book;
     book.taxes = static_cast<long>(sim.taxFund);
-    book.funds = static_cast<long>(sim.totalFunds);
-    book.previous_funds = sim.budgetAnchorValid ? static_cast<long>(sim.budgetAnchorFunds) : book.funds;
     book.tax_percent = sim.cityTax;
     book.road_percent = percent_of(sim.roadPercent);
     book.police_percent = percent_of(sim.policePercent);
@@ -743,6 +886,33 @@ CitySession::BudgetBook CitySession::budget() const
     book.road_need = static_cast<long>(sim.roadFund);
     book.police_need = static_cast<long>(sim.policeFund);
     book.fire_need = static_cast<long>(sim.fireFund);
+
+    if (sim.budgetAwaitingAccept) {
+        const Micropolis::BudgetCharge charge = sim.budgetCharge();
+        book.road_spent = static_cast<long>(charge.roadTaken);
+        book.police_spent = static_cast<long>(charge.policeTaken);
+        book.fire_spent = static_cast<long>(charge.fireTaken);
+        book.cash_flow = static_cast<long>(charge.posted);
+        book.previous_funds = sim.budgetAnchorValid ? static_cast<long>(sim.budgetAnchorFunds)
+                                                    : static_cast<long>(sim.totalFunds);
+        book.funds = static_cast<long>(sim.totalFunds) + book.cash_flow;
+        auto cut = [&](float requested, float applied) -> std::string {
+            const int want = percent_of(requested);
+            const int got = percent_of(applied);
+            if (want == got) {
+                return {};
+            }
+            return "cut to " + std::to_string(got) + "% because the city has " +
+                   with_commas(static_cast<long>(sim.totalFunds));
+        };
+        book.road_note = cut(sim.roadPercent, charge.roadPercent);
+        book.police_note = cut(sim.policePercent, charge.policePercent);
+        book.fire_note = cut(sim.firePercent, charge.firePercent);
+        return book;
+    }
+
+    book.funds = static_cast<long>(sim.totalFunds);
+    book.previous_funds = book.funds;
     book.road_spent = funded(sim.roadFund, book.road_percent);
     book.police_spent = funded(sim.policeFund, book.police_percent);
     book.fire_spent = funded(sim.fireFund, book.fire_percent);
@@ -752,8 +922,12 @@ CitySession::BudgetBook CitySession::budget() const
 
 void CitySession::set_sound_enabled(bool on)
 {
+    if (sound_enabled_ == on && engine_->sim.enableSound == on) {
+        return;
+    }
     sound_enabled_ = on;
     engine_->sim.setEnableSound(on);
+    mark_dirty();
 }
 
 bool CitySession::sound_enabled() const
@@ -804,7 +978,7 @@ void CitySession::finish_budget_edit()
         commit_pending_budget();
         return;
     }
-    engine_->sim.updateFundEffects();
+    engine_->sim.applyFundingLevels();
 }
 
 bool CitySession::census_ready() const
@@ -1031,6 +1205,23 @@ std::string CitySession::evaluation_text()
 int CitySession::history_value(HistorySeries series, HistoryScale scale, int index) const
 {
     return engine_->sim.getHistory(static_cast<int>(series), static_cast<int>(scale), index);
+}
+
+long CitySession::cash_flow_history(HistoryScale scale, int index) const
+{
+    return static_cast<long>(engine_->sim.cashFlowHistory(static_cast<int>(scale), index));
+}
+
+bool CitySession::cash_flow_history_exact(HistoryScale scale, int index) const
+{
+    return engine_->sim.cashFlowHistoryExact(static_cast<int>(scale), index);
+}
+
+int CitySession::take_scenario_outcome()
+{
+    const int outcome = scenario_outcome_;
+    scenario_outcome_ = 0;
+    return outcome;
 }
 
 void CitySession::update_evaluation()

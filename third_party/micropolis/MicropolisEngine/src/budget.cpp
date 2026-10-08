@@ -141,31 +141,24 @@ Quad take_budget_share(float &percent, Quad fund, Quad &available)
 } // namespace
 
 
-void Micropolis::commitBudgetPayment()
+Micropolis::BudgetCharge Micropolis::budgetCharge() const
 {
-    if (!budgetAwaitingAccept) {
-        return;
-    }
-    budgetAwaitingAccept = false;
+    // Same share as commitBudgetPayment, on copies of the percents, so the
+    // budget window can show the transaction Close will post.
+    BudgetCharge charge;
+    charge.roadPercent = roadPercent;
+    charge.firePercent = firePercent;
+    charge.policePercent = policePercent;
 
-    // Sliders can rise after doBudgetNow scaled them. Charge only what
-    // taxFund + cash on hand can cover, roads first, then fire, then police.
     Quad available = (Quad)taxFund + (Quad)totalFunds;
     if (available < 0) {
         available = 0;
     }
-    const Quad roadTaken = take_budget_share(roadPercent, roadFund, available);
-    const Quad fireTaken = take_budget_share(firePercent, fireFund, available);
-    const Quad policeTaken = take_budget_share(policePercent, policeFund, available);
+    charge.roadTaken = take_budget_share(charge.roadPercent, roadFund, available);
+    charge.fireTaken = take_budget_share(charge.firePercent, fireFund, available);
+    charge.policeTaken = take_budget_share(charge.policePercent, policeFund, available);
 
-    roadSpend = roadTaken;
-    fireSpend = fireTaken;
-    policeSpend = policeTaken;
-    roadValue = roadTaken;
-    fireValue = fireTaken;
-    policeValue = policeTaken;
-
-    const Quad spent = roadTaken + fireTaken + policeTaken;
+    const Quad spent = charge.roadTaken + charge.fireTaken + charge.policeTaken;
     Quad moreDough = (Quad)taxFund - spent;
     if ((Quad)totalFunds + moreDough < 0) {
         moreDough = -(Quad)totalFunds;
@@ -176,7 +169,56 @@ void Micropolis::commitBudgetPayment()
     if (moreDough < -2000000000L) {
         moreDough = -2000000000L;
     }
-    spend((int)(-moreDough));
+    charge.posted = moreDough;
+    return charge;
+}
+
+
+void Micropolis::commitBudgetPayment()
+{
+    if (!budgetAwaitingAccept) {
+        return;
+    }
+    budgetAwaitingAccept = false;
+
+    // Sliders can rise after doBudgetNow scaled them. Charge only what
+    // taxFund + cash on hand can cover, roads first, then fire, then police.
+    const BudgetCharge charge = budgetCharge();
+    roadPercent = charge.roadPercent;
+    firePercent = charge.firePercent;
+    policePercent = charge.policePercent;
+    roadSpend = charge.roadTaken;
+    fireSpend = charge.fireTaken;
+    policeSpend = charge.policeTaken;
+    roadValue = charge.roadTaken;
+    fireValue = charge.fireTaken;
+    policeValue = charge.policeTaken;
+    spend((int)(-charge.posted));
+    updateFundEffects();
+}
+
+
+void Micropolis::applyFundingLevels()
+{
+    auto share = [](Quad fund, float percent) -> Quad {
+        if (fund <= 0 || percent <= 0.0f) {
+            return 0;
+        }
+        if (percent > 1.0f) {
+            percent = 1.0f;
+        }
+        Quad taken = (Quad)((double)fund * (double)percent);
+        if (taken < 0) {
+            taken = 0;
+        }
+        return taken;
+    };
+    roadSpend = share(roadFund, roadPercent);
+    fireSpend = share(fireFund, firePercent);
+    policeSpend = share(policeFund, policePercent);
+    roadValue = roadSpend;
+    fireValue = fireSpend;
+    policeValue = policeSpend;
     updateFundEffects();
 }
 

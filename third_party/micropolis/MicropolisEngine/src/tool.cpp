@@ -651,10 +651,8 @@ ToolResult Micropolis::prepareBuildingSite(int leftX, int topY,
                                            ToolEffects *effects)
 {
     // Check that the entire site is on the map
-    if (leftX < 0 || leftX + sizeX > WORLD_W) {
-        return TOOLRESULT_FAILED;
-    }
-    if (topY < 0 || topY + sizeY > WORLD_H) {
+    if (leftX < 0 || leftX + sizeX > WORLD_W || topY < 0 || topY + sizeY > WORLD_H) {
+        toolFailureNotice = MESSAGE_OFF_MAP;
         return TOOLRESULT_FAILED;
     }
 
@@ -1372,8 +1370,35 @@ ToolResult Micropolis::forestTool(short x, short y, ToolEffects *effects)
  * @param tileY Vertical position in the city map.
  * @return Tool result.
  */
+namespace {
+
+void announce_tool(Micropolis *sim, EditingTool tool, short tileX, short tileY, ToolResult result)
+{
+    if (result == TOOLRESULT_NEED_BULLDOZE) {
+        sim->sendMessage(MESSAGE_BULLDOZE_AREA_FIRST, NOWHERE, NOWHERE, false, true);
+        sim->makeSound("interface", "UhUh", tileX << 4, tileY << 4);
+    } else if (result == TOOLRESULT_NO_MONEY) {
+        sim->sendMessage(MESSAGE_NOT_ENOUGH_FUNDS, NOWHERE, NOWHERE, false, true);
+        sim->makeSound("interface", "Sorry", tileX << 4, tileY << 4);
+    } else if (result == TOOLRESULT_FAILED) {
+        const short notice = sim->toolFailureNotice != 0 ? sim->toolFailureNotice
+                                                          : (short)MESSAGE_CANNOT_BUILD;
+        sim->sendMessage(notice, NOWHERE, NOWHERE, false, true);
+    } else if (result == TOOLRESULT_OK && tool == TOOL_ROAD && sim->testBounds(tileX, tileY)) {
+        const int tile = sim->map[tileX][tileY] & LOMASK;
+        if (tile == HBRIDGE || tile == VBRIDGE) {
+            sim->sendMessage(MESSAGE_BRIDGE_COST, tileX, tileY, false, true);
+        }
+    }
+    sim->toolFailureNotice = 0;
+}
+
+} // namespace
+
+
 ToolResult Micropolis::doTool(EditingTool tool, short tileX, short tileY)
 {
+    toolFailureNotice = 0;
     ToolEffects effects(this);
     ToolResult result;
 
@@ -1484,25 +1509,14 @@ ToolResult Micropolis::doTool(EditingTool tool, short tileX, short tileY)
 }
 
 
-void Micropolis::toolDown(EditingTool tool, short tileX, short tileY)
+ToolResult Micropolis::toolDown(EditingTool tool, short tileX, short tileY)
 {
-    ToolResult result = doTool(tool, tileX, tileY);
-
-    if (result == TOOLRESULT_NEED_BULLDOZE) {
-        sendMessage(MESSAGE_BULLDOZE_AREA_FIRST, NOWHERE, NOWHERE, false, true);
-        /// @todo: Multi player: This sound should only be heard by the user
-        ///        who called this function.
-        makeSound("interface", "UhUh", tileX <<4, tileY <<4);
-
-    } else if (result == TOOLRESULT_NO_MONEY) {
-        sendMessage(MESSAGE_NOT_ENOUGH_FUNDS, NOWHERE, NOWHERE, false, true);
-        /// @todo: Multi player: This sound should only be heard by the user
-        ///        who called this function.
-        makeSound("interface", "Sorry", tileX <<4, tileY <<4);
-    }
+    const ToolResult result = doTool(tool, tileX, tileY);
+    announce_tool(this, tool, tileX, tileY, result);
 
     simPass = 0;
     invalidateMaps();
+    return result;
 }
 
 /**
@@ -1513,17 +1527,26 @@ void Micropolis::toolDown(EditingTool tool, short tileX, short tileY)
  * @param toX Horizontal coordinate of the ending position.
  * @param toY Vertical coordinate of the ending position.
  */
-void Micropolis::toolDrag(EditingTool tool,
+bool Micropolis::toolDrag(EditingTool tool,
                             short fromX, short fromY, short toX, short toY)
 {
+    bool placed = false;
+    auto lay = [&](short x, short y) {
+        const ToolResult result = doTool(tool, x, y);
+        announce_tool(this, tool, x, y, result);
+        if (result == TOOLRESULT_OK) {
+            placed = true;
+        }
+    };
+
     // Do not drag big tools.
     int toolSize = gToolSize[tool];
     if (toolSize > 1) {
-        doTool(tool, toX, toY);
+        lay(toX, toY);
 
         simPass = 0; // update editors overlapping this one
         invalidateMaps();
-        return;
+        return placed;
     }
 
     short dirX = (toX > fromX) ? 1 : -1; // Horizontal step direction.
@@ -1531,22 +1554,22 @@ void Micropolis::toolDrag(EditingTool tool,
 
 
     if (fromX == toX && fromY == toY) {
-        return;
+        return false;
     }
 
-    doTool(tool, fromX, fromY); // Ensure the start position is done.
+    lay(fromX, fromY); // Ensure the start position is done.
 
     // Vertical line up or down
     if (fromX == toX && fromY != toY) {
 
         while (fromY != toY) {
             fromY += dirY;
-            doTool(tool, fromX, fromY);
+            lay(fromX, fromY);
         }
 
         simPass = 0; // update editors overlapping this one
         invalidateMaps();
-        return;
+        return placed;
     }
 
     // Horizontal line left/right
@@ -1554,12 +1577,12 @@ void Micropolis::toolDrag(EditingTool tool,
 
         while (fromX != toX) {
             fromX += dirX;
-            doTool(tool, fromX, fromY);
+            lay(fromX, fromY);
         }
 
         simPass = 0; // update editors overlapping this one
         invalidateMaps();
-        return;
+        return placed;
     }
 
     // General case: both X and Y change.
@@ -1576,19 +1599,20 @@ void Micropolis::toolDrag(EditingTool tool,
         if (subX >= dy) {
             subX -= dy;
             fromX += dirX;
-            doTool(tool, fromX, fromY);
+            lay(fromX, fromY);
         }
 
         subY += numSubsteps;
         if (subY >= dx) {
             subY -= dx;
             fromY += dirY;
-            doTool(tool, fromX, fromY);
+            lay(fromX, fromY);
         }
     }
 
     simPass = 0;
     invalidateMaps();
+    return placed;
 }
 
 
