@@ -1,3 +1,24 @@
+lunduke-city (0.9-7) unstable; urgency=medium
+
+  * A city with no January receipt shows estimated taxes and department
+    costs from the same formulas the budget uses, labelled as estimates.
+    It no longer says there is no tax receipt, and it no longer prices
+    every department at $0. A save that already has a receipt is unchanged.
+  * Each scenario shows its classic goal and deadline in the list, when
+    it starts, and while it runs, including the years still left. The
+    win or loss dialog says whether that goal was met.
+  * Closing the scenario announcement, or cancelling the scenario list,
+    leaves the city paused. Keep playing is what starts the clock.
+  * A department already cut to 0% keeps its explanation when the slider
+    reports 0 again. Those sentences wrap, so the budget window stays
+    near its usual width.
+  * The first screen starts paused. Tools keep their name-and-cost
+    tooltips. A dismissible welcome line explains how to start, and the
+    dismissal is stored under ~/.config.
+  * Clicking a power, water, or problem map centers the city view.
+
+ -- Phil <phil@brushpad.local>  Thu, 08 Oct 2026 23:10:00 +0000
+
 lunduke-city (0.9-6) unstable; urgency=medium
 
   * A census past 32,767 people, and a treasury past $2,147,483,647,

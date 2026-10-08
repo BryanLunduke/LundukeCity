@@ -26,7 +26,7 @@ features = executable(
   dependencies: [micropolis_dep, thread_dep],
   cpp_args: [
     '-DLUNDUKE_CITY_ASSET_DIR="' + lunduke_asset_dir + '"',
-    '-DLUNDUKE_CITY_PACKAGE_VERSION="0.9-6"',
+    '-DLUNDUKE_CITY_PACKAGE_VERSION="0.9-7"',
     '-DLUNDUKE_CITY_TEST_HOOKS',
   ],
 )
@@ -45,7 +45,7 @@ regressions = executable(
   dependencies: [micropolis_dep, thread_dep],
   cpp_args: [
     '-DLUNDUKE_CITY_ASSET_DIR="' + lunduke_asset_dir + '"',
-    '-DLUNDUKE_CITY_PACKAGE_VERSION="0.9-6"',
+    '-DLUNDUKE_CITY_PACKAGE_VERSION="0.9-7"',
     '-DLUNDUKE_CITY_TEST_HOOKS',
   ],
 )
@@ -64,7 +64,7 @@ round3 = executable(
   dependencies: [micropolis_dep, thread_dep],
   cpp_args: [
     '-DLUNDUKE_CITY_ASSET_DIR="' + lunduke_asset_dir + '"',
-    '-DLUNDUKE_CITY_PACKAGE_VERSION="0.9-6"',
+    '-DLUNDUKE_CITY_PACKAGE_VERSION="0.9-7"',
     '-DLUNDUKE_CITY_TEST_HOOKS',
   ],
 )
@@ -95,7 +95,7 @@ ui_round3 = executable(
   dependencies: [gtkmm_dep, micropolis_dep, thread_dep],
   cpp_args: [
     '-DLUNDUKE_CITY_ASSET_DIR="' + lunduke_asset_dir + '"',
-    '-DLUNDUKE_CITY_PACKAGE_VERSION="0.9-6"',
+    '-DLUNDUKE_CITY_PACKAGE_VERSION="0.9-7"',
     '-DLUNDUKE_CITY_TEST_HOOKS',
   ],
 )
@@ -114,7 +114,7 @@ round4 = executable(
   dependencies: [micropolis_dep, thread_dep],
   cpp_args: [
     '-DLUNDUKE_CITY_ASSET_DIR="' + lunduke_asset_dir + '"',
-    '-DLUNDUKE_CITY_PACKAGE_VERSION="0.9-6"',
+    '-DLUNDUKE_CITY_PACKAGE_VERSION="0.9-7"',
     '-DLUNDUKE_CITY_TEST_HOOKS',
   ],
 )
@@ -133,7 +133,7 @@ round5 = executable(
   dependencies: [micropolis_dep, thread_dep],
   cpp_args: [
     '-DLUNDUKE_CITY_ASSET_DIR="' + lunduke_asset_dir + '"',
-    '-DLUNDUKE_CITY_PACKAGE_VERSION="0.9-6"',
+    '-DLUNDUKE_CITY_PACKAGE_VERSION="0.9-7"',
     '-DLUNDUKE_CITY_TEST_HOOKS',
   ],
 )
@@ -164,9 +164,59 @@ ui_round4 = executable(
   dependencies: [gtkmm_dep, micropolis_dep, thread_dep],
   cpp_args: [
     '-DLUNDUKE_CITY_ASSET_DIR="' + lunduke_asset_dir + '"',
-    '-DLUNDUKE_CITY_PACKAGE_VERSION="0.9-6"',
+    '-DLUNDUKE_CITY_PACKAGE_VERSION="0.9-7"',
     '-DLUNDUKE_CITY_TEST_HOOKS',
   ],
 )
 
 test('ui_round4', ui_round4, timeout: 180)
+
+round6 = executable(
+  'round6',
+  'round6.cpp',
+  '../src/assets.cpp',
+  '../src/city_session.cpp',
+  '../src/messages.cpp',
+  '../src/sound_player.cpp',
+  '../src/tools.cpp',
+  include_directories: include_directories('../src'),
+  dependencies: [micropolis_dep, thread_dep],
+  cpp_args: [
+    '-DLUNDUKE_CITY_ASSET_DIR="' + lunduke_asset_dir + '"',
+    '-DLUNDUKE_CITY_PACKAGE_VERSION="0.9-7"',
+    '-DLUNDUKE_CITY_TEST_HOOKS',
+  ],
+)
+
+test('round6', round6, timeout: 180)
+
+ui_round6 = executable(
+  'ui_round6',
+  'ui_round6.cpp',
+  '../src/about_dialog.cpp',
+  '../src/app_window.cpp',
+  '../src/assets.cpp',
+  '../src/budget_window.cpp',
+  '../src/city_session.cpp',
+  '../src/evaluation_window.cpp',
+  '../src/graphs_window.cpp',
+  '../src/map_view.cpp',
+  '../src/messages.cpp',
+  '../src/new_city_dialog.cpp',
+  '../src/overlay_window.cpp',
+  '../src/side_widgets.cpp',
+  '../src/sound_player.cpp',
+  '../src/sprite_art.cpp',
+  '../src/tile_atlas.cpp',
+  '../src/tool_palette.cpp',
+  '../src/tools.cpp',
+  include_directories: include_directories('../src'),
+  dependencies: [gtkmm_dep, micropolis_dep, thread_dep],
+  cpp_args: [
+    '-DLUNDUKE_CITY_ASSET_DIR="' + lunduke_asset_dir + '"',
+    '-DLUNDUKE_CITY_PACKAGE_VERSION="0.9-7"',
+    '-DLUNDUKE_CITY_TEST_HOOKS',
+  ],
+)
+
+test('ui_round6', ui_round6, timeout: 180)

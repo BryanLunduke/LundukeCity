@@ -49,9 +49,12 @@ public:
         std::string road_note;
         std::string police_note;
         std::string fire_note;
-        // False when this file has no stored January. The dollar line then
-        // says so instead of printing $0.
+        // False until a January in this version has collected, or a save
+        // carried an LCW1 receipt. The book then shows estimates.
         bool taxes_known = false;
+        // True when the dollar amounts are projected from the current
+        // census because no January has been collected yet.
+        bool estimates = false;
     };
 
     // Separate map views. Power codes: 0 empty, 2 unpowered zone,
@@ -83,6 +86,9 @@ public:
         const char *name = "";
         int year = 0;
         const char *summary = "";
+        // Classic win condition, including the deadline in years.
+        const char *goal = "";
+        int years = 0;
     };
 
     static constexpr int kScenarioCount = 8;
@@ -255,7 +261,15 @@ public:
     // the next scenario.
     void stay_paused_after_outcome();
     // Body of the win/loss dialog. Keep playing is what starts the clock.
+    // Closing the window, or cancelling the scenario list, leaves it paused.
     std::string scenario_outcome_text(bool won) const;
+    // 0 when this city is not one of the eight scenarios.
+    int scenario_id() const;
+    // Years until the scenario is scored. -1 when no scenario is running.
+    // 0 when the deadline has already passed.
+    int scenario_years_left() const;
+    // Goal plus the time still left. Empty when no scenario is running.
+    std::string scenario_progress() const;
 
     // Public-opinion and score data from the last cityEvaluation().
     // update_evaluation() runs that pass; evaluation() only reads it.

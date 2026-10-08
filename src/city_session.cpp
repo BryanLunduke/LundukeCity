@@ -112,15 +112,34 @@ struct ScenarioEntry {
 };
 
 // Names, years, funds, and filenames are the engine's loadScenario() table.
+// Goals are the classic Micropolis win conditions (Metropolis, traffic
+// below 80, crime below 60, city score above 500) and the scoreWaitTable
+// deadlines, in years.
 const ScenarioEntry kScenarios[] = {
-    {{SC_DULLSVILLE, "Dullsville", 1900, "A quiet city that needs growth."}, "snro.111"},
-    {{SC_SAN_FRANCISCO, "San Francisco", 1906, "An earthquake strikes the city."}, "snro.222"},
-    {{SC_HAMBURG, "Hamburg", 1944, "Fire spreads through the city."}, "snro.333"},
-    {{SC_BERN, "Bern", 1965, "Traffic is choking the streets."}, "snro.444"},
-    {{SC_TOKYO, "Tokyo", 1957, "A monster is approaching."}, "snro.555"},
-    {{SC_DETROIT, "Detroit", 1972, "Crime is out of control."}, "snro.666"},
-    {{SC_BOSTON, "Boston", 2010, "A nuclear meltdown is coming."}, "snro.777"},
-    {{SC_RIO, "Rio de Janeiro", 2047, "Flooding threatens the city."}, "snro.888"},
+    {{SC_DULLSVILLE, "Dullsville", 1900, "A quiet city that needs growth.",
+      "Turn this city into a Metropolis (more than 100,000 people) within 30 years.", 30},
+     "snro.111"},
+    {{SC_SAN_FRANCISCO, "San Francisco", 1906, "An earthquake strikes the city.",
+      "Reach Metropolis (more than 100,000 people) within 5 years.", 5},
+     "snro.222"},
+    {{SC_HAMBURG, "Hamburg", 1944, "Fire spreads through the city.",
+      "Reach Metropolis (more than 100,000 people) within 5 years.", 5},
+     "snro.333"},
+    {{SC_BERN, "Bern", 1965, "Traffic is choking the streets.",
+      "Bring average traffic below 80 within 10 years.", 10},
+     "snro.444"},
+    {{SC_TOKYO, "Tokyo", 1957, "A monster is approaching.",
+      "Raise the city score above 500 within 5 years.", 5},
+     "snro.555"},
+    {{SC_DETROIT, "Detroit", 1972, "Crime is out of control.",
+      "Bring average crime below 60 within 10 years.", 10},
+     "snro.666"},
+    {{SC_BOSTON, "Boston", 2010, "A nuclear meltdown is coming.",
+      "Raise the city score above 500 within 5 years.", 5},
+     "snro.777"},
+    {{SC_RIO, "Rio de Janeiro", 2047, "Flooding threatens the city.",
+      "Raise the city score above 500 within 10 years.", 10},
+     "snro.888"},
 };
 
 static_assert(sizeof(kScenarios) / sizeof(kScenarios[0]) == CitySession::kScenarioCount,
@@ -295,6 +314,40 @@ int hostile_review_session_probe(CitySession &session, int op)
         sim.taxFund = 2000;
         sim.taxReceiptKnown = true;
         return static_cast<int>(sim.taxFund);
+    }
+    if (op == 20) {
+        // The book before the first January must use projectBudget, the
+        // same function collectTax uses, on the finished census.
+        const bool snap = sim.censusSnapshotValid;
+        const short roads = snap ? sim.snapRoadTotal : sim.roadTotal;
+        const short rails = snap ? sim.snapRailTotal : sim.railTotal;
+        const short police = snap ? sim.snapPolicePop : sim.policeStationPop;
+        const short fire = snap ? sim.snapFirePop : sim.fireStationPop;
+        const Quad res = snap ? sim.snapResPop : sim.resPop;
+        const Quad com = snap ? sim.snapComPop : sim.comPop;
+        const Quad ind = snap ? sim.snapIndPop : sim.indPop;
+        const float normalized = static_cast<float>(res) / 8.0f;
+        const Quad pop = static_cast<Quad>(normalized + static_cast<float>(com) + static_cast<float>(ind));
+        const Micropolis::BudgetBases bases =
+            sim.projectBudget(roads, rails, police, fire, pop, sim.landValueAverage, sim.cityTax);
+        const CitySession::BudgetBook book = session.budget();
+        if (!book.estimates || book.taxes_known || book.road_need != static_cast<long>(bases.road) ||
+            book.police_need != static_cast<long>(bases.police) || book.fire_need != static_cast<long>(bases.fire) ||
+            book.taxes != static_cast<long>(bases.tax)) {
+            return 0;
+        }
+        if (!snap || sim.roadTotal != sim.snapRoadTotal || sim.railTotal != sim.snapRailTotal) {
+            return 0;
+        }
+        const Micropolis::BudgetBases january = sim.projectBudget(
+            sim.roadTotal, sim.railTotal, sim.policeStationPop, sim.fireStationPop, pop, sim.landValueAverage,
+            sim.cityTax);
+        if (book.road_need != static_cast<long>(january.road)) {
+            return 0;
+        }
+        // 2 when the census has a real road bill. 1 when the formula
+        // matches and the map simply has no roads yet.
+        return book.road_need > 0 ? 2 : 1;
     }
     if (op == 16) {
         // Taxes in hand are what make the road cut affordable. Cash alone
@@ -937,12 +990,11 @@ void CitySession::set_service_funding(int kind, int percent)
         slot = &sim.firePercent;
     }
     // The scale reports values inside the percent it is already showing
-    // (2.4 rounds to 2). That is not a new request, and it must not drop
-    // the cut sentence. 0% is the request the tax year already locked:
-    // leaving the slider on zero after the city cut the department there
-    // means the player asked for nothing, so the sentence goes away.
+    // (2.4 rounds to 2, and a scale sitting on 0 can report 0 again).
+    // That is not a new request, and it must not drop the cut sentence.
+    // The touched flag is set only after the percent actually changes.
     const int showing = percent_of_fraction(*slot);
-    if (showing == percent && percent != 0) {
+    if (showing == percent) {
         return;
     }
     if (kind == 1) {
@@ -1020,6 +1072,32 @@ CitySession::BudgetBook CitySession::budget() const
     book.fire_need = static_cast<long>(sim.fireFund);
     book.taxes_known = sim.taxReceiptKnown;
 
+    // A new city, a scenario, and a classic file have no January receipt.
+    // roadFund stays 0 until collectTax, which is not the same as a
+    // department that costs nothing. Project the bill from the finished
+    // census with the same formula January will use. totalPop is left at
+    // 1 by doSimInit, so the tax uses the census population setValves
+    // would write, not that placeholder.
+    if (!book.taxes_known && !sim.budgetAwaitingAccept) {
+        const bool snap = sim.censusSnapshotValid;
+        const short roads = snap ? sim.snapRoadTotal : sim.roadTotal;
+        const short rails = snap ? sim.snapRailTotal : sim.railTotal;
+        const short police = snap ? sim.snapPolicePop : sim.policeStationPop;
+        const short fire = snap ? sim.snapFirePop : sim.fireStationPop;
+        const Quad res = snap ? sim.snapResPop : sim.resPop;
+        const Quad com = snap ? sim.snapComPop : sim.comPop;
+        const Quad ind = snap ? sim.snapIndPop : sim.indPop;
+        const float normalized = static_cast<float>(res) / 8.0f;
+        const Quad pop = static_cast<Quad>(normalized + static_cast<float>(com) + static_cast<float>(ind));
+        const Micropolis::BudgetBases bases =
+            sim.projectBudget(roads, rails, police, fire, pop, sim.landValueAverage, sim.cityTax);
+        book.taxes = static_cast<long>(bases.tax);
+        book.road_need = static_cast<long>(bases.road);
+        book.police_need = static_cast<long>(bases.police);
+        book.fire_need = static_cast<long>(bases.fire);
+        book.estimates = true;
+    }
+
     if (sim.budgetAwaitingAccept) {
         const Micropolis::BudgetCharge charge = sim.budgetCharge();
         book.road_spent = static_cast<long>(charge.roadTaken);
@@ -1075,9 +1153,12 @@ CitySession::BudgetBook CitySession::budget() const
 
     book.funds = static_cast<long>(sim.totalFunds);
     book.previous_funds = book.funds;
-    book.road_spent = funded(sim.roadFund, book.road_percent);
-    book.police_spent = funded(sim.policeFund, book.police_percent);
-    book.fire_spent = funded(sim.fireFund, book.fire_percent);
+    // Needs are the stored January bill, or the estimate filled in above.
+    // Spending the stored fund here would print $0 for a city that has
+    // not collected a tax year yet.
+    book.road_spent = funded(static_cast<Quad>(book.road_need), book.road_percent);
+    book.police_spent = funded(static_cast<Quad>(book.police_need), book.police_percent);
+    book.fire_spent = funded(static_cast<Quad>(book.fire_need), book.fire_percent);
     book.cash_flow = book.taxes - book.road_spent - book.police_spent - book.fire_spent;
     return book;
 }
@@ -1386,10 +1467,62 @@ int CitySession::take_scenario_outcome()
     return outcome;
 }
 
+int CitySession::scenario_id() const
+{
+    const int id = static_cast<int>(engine_->sim.scenario);
+    if (id < SC_DULLSVILLE || id > SC_RIO) {
+        return 0;
+    }
+    return id;
+}
+
+int CitySession::scenario_years_left() const
+{
+    const Micropolis &sim = engine_->sim;
+    if (scenario_id() == 0 || sim.scoreType == SC_NONE) {
+        return -1;
+    }
+    // scoreWait counts simulation cycles. A year is 48 cycles, and the
+    // counter is checked once per cycle. Round up so the first year on
+    // the clock still reads as a full year.
+    if (sim.scoreWait <= 0) {
+        return 0;
+    }
+    return (static_cast<int>(sim.scoreWait) + 47) / 48;
+}
+
+std::string CitySession::scenario_progress() const
+{
+    const int id = scenario_id();
+    if (id == 0) {
+        return {};
+    }
+    const ScenarioDef &def = scenario_def(id - SC_DULLSVILLE);
+    const int left = scenario_years_left();
+    std::string time = "Time is up";
+    if (left == 1) {
+        time = "1 year left";
+    } else if (left > 1) {
+        time = std::to_string(left) + " years left";
+    } else if (left < 0) {
+        time = std::to_string(def.years) + " years";
+    }
+    return time + ". " + def.goal;
+}
+
 std::string CitySession::scenario_outcome_text(bool won) const
 {
-    return city_name() + (won ? " is won." : " is lost.") +
-           " The city is paused for this announcement. Keep playing continues at the previous speed.";
+    std::string text = city_name() + (won ? " is won." : " is lost.");
+    const int id = scenario_id();
+    if (id != 0) {
+        const ScenarioDef &def = scenario_def(id - SC_DULLSVILLE);
+        text += won ? " The goal was met: " : " The goal was missed: ";
+        text += def.goal;
+        text += ".";
+    }
+    text += " The city is paused for this announcement. Keep playing continues at the previous speed.";
+    text += " Closing this window, or cancelling the scenario list, leaves the city paused.";
+    return text;
 }
 
 void CitySession::resume_after_outcome()

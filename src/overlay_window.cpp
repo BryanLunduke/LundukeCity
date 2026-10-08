@@ -87,7 +87,9 @@ OverlayWindow::OverlayWindow(CitySession::MapLayer layer)
     legend_.set_max_width_chars(48);
 
     map_.set_size_request(CitySession::kWorldW * 4, CitySession::kWorldH * 4);
+    map_.add_events(Gdk::BUTTON_PRESS_MASK);
     map_.signal_draw().connect(sigc::mem_fun(*this, &OverlayWindow::on_draw_map));
+    map_.signal_button_press_event().connect(sigc::mem_fun(*this, &OverlayWindow::on_map_button));
 
     root_.pack_start(legend_, Gtk::PACK_SHRINK);
     root_.pack_start(map_, Gtk::PACK_SHRINK);
@@ -212,6 +214,36 @@ void OverlayWindow::rebuild()
         }
     }
     image_->mark_dirty();
+}
+
+void OverlayWindow::click_at(double x, double y)
+{
+    GdkEventButton event{};
+    event.button = 1;
+    event.x = x;
+    event.y = y;
+    on_map_button(&event);
+}
+
+bool OverlayWindow::on_map_button(GdkEventButton *event)
+{
+    if (event == nullptr || event->button != 1) {
+        return false;
+    }
+    double w = map_.get_allocated_width();
+    double h = map_.get_allocated_height();
+    // A click before the first allocation still maps onto the 4 px grid
+    // the picture is drawn at.
+    if (w < 2.0) {
+        w = CitySession::kWorldW * 4.0;
+    }
+    if (h < 2.0) {
+        h = CitySession::kWorldH * 4.0;
+    }
+    const double fx = std::max(0.0, std::min(1.0, event->x / w));
+    const double fy = std::max(0.0, std::min(1.0, event->y / h));
+    signal_jump.emit(fx, fy);
+    return true;
 }
 
 bool OverlayWindow::on_draw_map(const Cairo::RefPtr<Cairo::Context> &cr)

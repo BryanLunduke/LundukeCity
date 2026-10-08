@@ -1631,6 +1631,21 @@ public:
     };
     BudgetCharge budgetCharge() const;
 
+    /**
+     * Department bills and the tax receipt, using the same formulas as
+     * collectTax. roads/rails/policePop/firePop are census counts.
+     * pop is the totalPop setValves computes (residential / 8 + commercial
+     * + industrial), not the on-screen population.
+     */
+    struct BudgetBases {
+        Quad tax = 0;
+        Quad road = 0;
+        Quad police = 0;
+        Quad fire = 0;
+    };
+    BudgetBases projectBudget(short roads, short rails, short policePop, short firePop, Quad pop, short landValue,
+                              short taxRate) const;
+
     /** Road, police, and fire effects follow the slider percents now. */
     void applyFundingLevels();
 
