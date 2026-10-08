@@ -198,6 +198,50 @@ void Micropolis::commitBudgetPayment()
 }
 
 
+Micropolis::BudgetBases Micropolis::projectBudget(short roads, short rails, short policePop, short firePop, Quad pop,
+                                                   short landValue, short taxRate) const
+{
+    // Same tables collectTax and recomputeTaxFund have always used.
+    static const float RLevels[3] = { 0.7f, 0.9f, 1.2f };
+    static const float FLevels[3] = { 1.4f, 1.2f, 0.8f };
+    int level = (int)gameLevel;
+    if (level < 0 || level >= LEVEL_COUNT) {
+        level = 0;
+    }
+    if (pop < 0) {
+        pop = 0;
+    }
+    if (landValue < 0) {
+        landValue = 0;
+    }
+    if (taxRate < 0) {
+        taxRate = 0;
+    }
+    if (roads < 0) {
+        roads = 0;
+    }
+    if (rails < 0) {
+        rails = 0;
+    }
+    if (policePop < 0) {
+        policePop = 0;
+    }
+    if (firePop < 0) {
+        firePop = 0;
+    }
+
+    BudgetBases out;
+    out.police = (Quad)policePop * 100;
+    out.fire = (Quad)firePop * 100;
+    out.road = (Quad)((roads + (rails * 2)) * RLevels[level]);
+    out.tax = (Quad)((((Quad)pop * (Quad)landValue) / 120) * (Quad)taxRate * FLevels[level]);
+    if (out.tax < 0) {
+        out.tax = 0;
+    }
+    return out;
+}
+
+
 void Micropolis::applyFundingLevels()
 {
     auto share = [](Quad fund, float percent) -> Quad {

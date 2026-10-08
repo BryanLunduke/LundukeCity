@@ -15,6 +15,7 @@
 
 #include <gtkmm/applicationwindow.h>
 #include <gtkmm/box.h>
+#include <gtkmm/button.h>
 #include <gtkmm/checkmenuitem.h>
 #include <gtkmm/dialog.h>
 #include <gtkmm/eventbox.h>
@@ -89,7 +90,11 @@ private:
     Gtk::Box status_{Gtk::ORIENTATION_HORIZONTAL, 8};
     Gtk::Label funds_label_;
     Gtk::Label name_label_;
+    Gtk::Label years_label_;
     Gtk::Label date_label_;
+    Gtk::Box welcome_bar_{Gtk::ORIENTATION_HORIZONTAL, 8};
+    Gtk::Label welcome_label_;
+    Gtk::Button welcome_dismiss_{"_Dismiss", true};
     Gtk::Box body_{Gtk::ORIENTATION_HORIZONTAL, 0};
     Gtk::ScrolledWindow side_scroll_;
     Gtk::EventBox side_events_;
@@ -101,8 +106,9 @@ private:
     Gtk::ScrolledWindow scroll_;
     MapView map_;
     Gtk::EventBox message_events_;
-    Gtk::Box message_bar_{Gtk::ORIENTATION_HORIZONTAL, 0};
+    Gtk::Box message_bar_{Gtk::ORIENTATION_VERTICAL, 2};
     Gtk::Label message_label_;
+    Gtk::Label goal_label_;
 
     Gtk::CheckMenuItem *auto_budget_item_ = nullptr;
     Gtk::CheckMenuItem *auto_bulldoze_item_ = nullptr;
@@ -121,7 +127,7 @@ private:
     Glib::RefPtr<Gtk::SizeGroup> status_ends_;
     sigc::connection timer_;
     bool updating_checks_ = false;
-    int speed_ = 2;
+    int speed_ = 0;
     std::string tool_hint_ = "Power lines: $5. Underwater wire: $25";
     std::string shown_engine_message_;
     int shown_message_serial_ = 0;

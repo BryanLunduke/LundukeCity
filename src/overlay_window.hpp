@@ -22,9 +22,15 @@ public:
     void present_map();
     // Rebuild the retained image when the map or a density layer changed.
     void sync();
+    // Left click, in drawing-area pixels. Centers the city the same way
+    // the side-panel minimap does.
+    void click_at(double x, double y);
+
+    sigc::signal<void, double, double> signal_jump;
 
 protected:
     bool on_draw_map(const Cairo::RefPtr<Cairo::Context> &cr);
+    bool on_map_button(GdkEventButton *event);
 
 private:
     bool density_layer() const;

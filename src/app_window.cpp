@@ -17,7 +17,9 @@
 #include <gdkmm/pixbuf.h>
 #include <glibmm/main.h>
 #include <gtk/gtk.h>
+#include <gtkmm/cellrenderertext.h>
 #include <gtkmm/dialog.h>
+#include <gtkmm/main.h>
 #include <gtkmm/entry.h>
 #include <gtkmm/filechooserdialog.h>
 #include <gtkmm/filefilter.h>
@@ -41,7 +43,77 @@ static_assert(static_cast<unsigned>(GDK_KEY_KP_Subtract) == 0xffad, "keypad minu
 static_assert(static_cast<unsigned>(Gdk::CONTROL_MASK) == 4u, "control mask");
 static_assert(static_cast<unsigned>(Gdk::MOD1_MASK) == 8u, "alt mask");
 
-AppWindow::~AppWindow() = default;
+namespace {
+
+// The first-run tip lives in the user's own config. It is never written
+// under XDG system dirs or an XFCE config tree.
+std::string welcome_dismiss_path()
+{
+    const char *home = std::getenv("HOME");
+    if (home == nullptr || home[0] != '/') {
+        return {};
+    }
+    const std::string dir = std::string(home) + "/.config/lunduke-city";
+    if (dir.find("/xfce") != std::string::npos) {
+        return {};
+    }
+    return dir + "/welcome-dismissed";
+}
+
+bool welcome_was_dismissed()
+{
+    const std::string path = welcome_dismiss_path();
+    if (path.empty()) {
+        return false;
+    }
+    std::ifstream in(path);
+    return in.good();
+}
+
+void remember_welcome_dismissed()
+{
+    const std::string path = welcome_dismiss_path();
+    if (path.empty()) {
+        return;
+    }
+    const auto slash = path.find_last_of('/');
+    if (slash == std::string::npos) {
+        return;
+    }
+    std::error_code ec;
+    std::filesystem::create_directories(path.substr(0, slash), ec);
+    if (ec) {
+        return;
+    }
+    std::ofstream out(path, std::ios::trunc);
+    if (!out) {
+        return;
+    }
+    out << "dismissed\n";
+}
+
+const char *speed_word(int speed)
+{
+    switch (speed) {
+    case 0:
+        return "Paused";
+    case 1:
+        return "Slow";
+    case 2:
+        return "Medium";
+    case 3:
+        return "Fast";
+    default:
+        return "Paused";
+    }
+}
+
+} // namespace
+
+AppWindow::~AppWindow()
+{
+    timer_.disconnect();
+}
 
 AppWindow::AppWindow()
 {
@@ -61,6 +133,7 @@ AppWindow::AppWindow()
     for (int i = 0; i < 6; ++i) {
         overlays_[i] = std::make_unique<OverlayWindow>(layers[i]);
         overlays_[i]->set_session(session_.get());
+        overlays_[i]->signal_jump.connect(sigc::mem_fun(*this, &AppWindow::center_on_fraction));
     }
     budget_window_.set_session(session_.get());
     budget_window_.signal_hide().connect(sigc::mem_fun(*this, &AppWindow::on_budget_hidden));
@@ -73,11 +146,25 @@ AppWindow::AppWindow()
     show_all_children();
 
     session_->set_listener([this] { refresh(); });
+    // The first screen is paused. A speed chosen later is what New City
+    // and a scenario keep. Space still resumes at Medium.
+    speed_ = 0;
+    session_->set_speed(0);
     session_->new_city("New City");
-    session_->set_speed(speed_);
+    session_->set_speed(0);
     sync_option_checks();
     show_tool_hint();
+    if (welcome_was_dismissed()) {
+        welcome_bar_.hide();
+    } else {
+        // show_all() ignores a widget with no-show-all set. show() is what
+        // puts the tip on screen, and a later show_all() leaves it alone.
+        welcome_label_.show();
+        welcome_dismiss_.show();
+        welcome_bar_.show();
+    }
     refresh();
+    map_.grab_focus();
 
     timer_ = Glib::signal_timeout().connect(sigc::mem_fun(*this, &AppWindow::on_tick), 100);
     Glib::signal_timeout().connect_once([this] { center_on_fraction(0.5, 0.5); }, 200);
@@ -103,8 +190,13 @@ void AppWindow::build_ui()
     date_label_.set_xalign(1);
     status_ends_->add_widget(funds_label_);
     status_ends_->add_widget(date_label_);
+    years_label_.set_halign(Gtk::ALIGN_END);
+    years_label_.set_xalign(1);
+    years_label_.set_no_show_all(true);
+    years_label_.hide();
     status_.pack_start(funds_label_, Gtk::PACK_SHRINK);
     status_.pack_start(name_label_, Gtk::PACK_EXPAND_WIDGET);
+    status_.pack_start(years_label_, Gtk::PACK_SHRINK);
     status_.pack_start(date_label_, Gtk::PACK_SHRINK);
     status_events_.add(status_);
     status_events_.set_name("status-bar");
@@ -148,8 +240,40 @@ void AppWindow::build_ui()
     message_label_.set_xalign(0);
     message_label_.set_hexpand(true);
     message_label_.set_margin_start(8);
+    goal_label_.set_halign(Gtk::ALIGN_START);
+    goal_label_.set_xalign(0);
+    goal_label_.set_hexpand(true);
+    goal_label_.set_margin_start(8);
+    goal_label_.set_line_wrap(true);
+    goal_label_.set_line_wrap_mode(Pango::WRAP_WORD_CHAR);
+    goal_label_.set_max_width_chars(72);
+    goal_label_.set_no_show_all(true);
+    goal_label_.hide();
     message_bar_.set_border_width(5);
-    message_bar_.pack_start(message_label_, Gtk::PACK_EXPAND_WIDGET);
+    message_bar_.pack_start(message_label_, Gtk::PACK_SHRINK);
+    message_bar_.pack_start(goal_label_, Gtk::PACK_SHRINK);
+
+    welcome_label_.set_halign(Gtk::ALIGN_START);
+    welcome_label_.set_xalign(0);
+    welcome_label_.set_hexpand(true);
+    welcome_label_.set_line_wrap(true);
+    welcome_label_.set_line_wrap_mode(Pango::WRAP_WORD_CHAR);
+    welcome_label_.set_max_width_chars(72);
+    welcome_label_.set_text(
+        "Welcome to Lunduke City. The clock is paused. Choose a speed under Options, start a city with "
+        "System -> New City, or pick System -> Play Scenario. Point at a tool to see its name and cost.");
+    welcome_dismiss_.set_halign(Gtk::ALIGN_END);
+    welcome_dismiss_.set_valign(Gtk::ALIGN_CENTER);
+    welcome_dismiss_.signal_clicked().connect([this] {
+        remember_welcome_dismissed();
+        welcome_bar_.hide();
+    });
+    welcome_bar_.set_border_width(6);
+    welcome_bar_.set_name("welcome-tip");
+    // show_all on a later launch must not bring a dismissed tip back.
+    welcome_bar_.set_no_show_all(true);
+    welcome_bar_.pack_start(welcome_label_, Gtk::PACK_EXPAND_WIDGET);
+    welcome_bar_.pack_start(welcome_dismiss_, Gtk::PACK_SHRINK);
     message_events_.add(message_bar_);
     message_events_.set_name("message-bar");
 
@@ -159,6 +283,7 @@ void AppWindow::build_ui()
     root_.pack_start(menu_bar_, Gtk::PACK_SHRINK);
     root_.pack_start(status_events_, Gtk::PACK_SHRINK);
     root_.pack_start(body_, Gtk::PACK_EXPAND_WIDGET);
+    root_.pack_start(welcome_bar_, Gtk::PACK_SHRINK);
     root_.pack_start(message_events_, Gtk::PACK_SHRINK);
 }
 
@@ -364,7 +489,28 @@ void AppWindow::refresh()
 {
     funds_label_.set_text(session_->funds_text());
     name_label_.set_text(session_->city_name());
-    date_label_.set_text(session_->date_text());
+    const int speed = session_->speed();
+    date_label_.set_text(std::string(speed_word(speed)) + "   " + session_->date_text());
+    const int years_left = session_->scenario_years_left();
+    if (years_left < 0) {
+        years_label_.hide();
+    } else if (years_left == 0) {
+        years_label_.set_text("Time is up");
+        years_label_.show();
+    } else if (years_left == 1) {
+        years_label_.set_text("1 year left");
+        years_label_.show();
+    } else {
+        years_label_.set_text(std::to_string(years_left) + " years left");
+        years_label_.show();
+    }
+    const std::string progress = session_->scenario_progress();
+    if (progress.empty()) {
+        goal_label_.hide();
+    } else {
+        goal_label_.set_text(progress);
+        goal_label_.show();
+    }
     set_title("Lunduke City - " + session_->city_name());
 
     const auto now = std::chrono::steady_clock::now();
@@ -542,8 +688,18 @@ void AppWindow::center_on_fraction(double fx, double fy)
 {
     auto ha = scroll_.get_hadjustment();
     auto va = scroll_.get_vadjustment();
-    const double x = fx * map_.pixel_width() - ha->get_page_size() / 2.0;
-    const double y = fy * map_.pixel_height() - va->get_page_size() / 2.0;
+    const double map_w = static_cast<double>(map_.pixel_width());
+    const double map_h = static_cast<double>(map_.pixel_height());
+    // A click can arrive before the scrolled window has allocated the map.
+    // The range has to match the map or the value cannot move.
+    if (ha->get_upper() < map_w) {
+        ha->set_upper(std::max(ha->get_page_size(), map_w));
+    }
+    if (va->get_upper() < map_h) {
+        va->set_upper(std::max(va->get_page_size(), map_h));
+    }
+    const double x = fx * map_w - ha->get_page_size() / 2.0;
+    const double y = fy * map_h - va->get_page_size() / 2.0;
     ha->set_value(std::max(ha->get_lower(), std::min(ha->get_upper() - ha->get_page_size(), x)));
     va->set_value(std::max(va->get_lower(), std::min(va->get_upper() - va->get_page_size(), y)));
 }
@@ -865,16 +1021,18 @@ void AppWindow::present_scenario_outcome(int outcome)
     if (response == Gtk::RESPONSE_ACCEPT) {
         on_play_scenario();
     }
-    // Stay paused leaves the clock stopped, which is what that button
-    // says. Keep playing, the title-bar close, and cancelling the
-    // scenario list all end the announcement at the previous speed. A
-    // scenario that actually started has already chosen its own speed.
-    if (response == Gtk::RESPONSE_REJECT) {
-        session_->stay_paused_after_outcome();
-        speed_ = session_->speed();
-        sync_option_checks();
+    // Keep playing is the only response that starts the clock. The title-bar
+    // close, Escape, Stay paused, and cancelling the scenario list leave
+    // the city paused, which is what the dialog says. A scenario that
+    // actually started has already chosen its own speed.
+    if (response == Gtk::RESPONSE_OK) {
+        if (session_->outcome_pause_pending()) {
+            session_->resume_after_outcome();
+            speed_ = session_->speed();
+            sync_option_checks();
+        }
     } else if (session_->outcome_pause_pending()) {
-        session_->resume_after_outcome();
+        session_->stay_paused_after_outcome();
         speed_ = session_->speed();
         sync_option_checks();
     }
@@ -949,10 +1107,12 @@ void AppWindow::on_play_scenario()
         {
             add(id);
             add(scenario);
+            add(goal);
             add(notes);
         }
         Gtk::TreeModelColumn<int> id;
         Gtk::TreeModelColumn<Glib::ustring> scenario;
+        Gtk::TreeModelColumn<Glib::ustring> goal;
         Gtk::TreeModelColumn<Glib::ustring> notes;
     };
 
@@ -963,6 +1123,7 @@ void AppWindow::on_play_scenario()
         auto row = *store->append();
         row[columns.id] = def.id;
         row[columns.scenario] = Glib::ustring(def.name) + " (" + std::to_string(def.year) + ")";
+        row[columns.goal] = def.goal;
         row[columns.notes] = def.summary;
     }
 
@@ -970,23 +1131,31 @@ void AppWindow::on_play_scenario()
     dialog.add_button("_Cancel", Gtk::RESPONSE_CANCEL);
     dialog.add_button("_Play", Gtk::RESPONSE_OK);
     dialog.set_default_response(Gtk::RESPONSE_OK);
-    dialog.set_default_size(560, 420);
+    dialog.set_default_size(720, 460);
 
     auto *intro = Gtk::manage(new Gtk::Label(
-        "Choose a scenario. Playing it replaces the city on the map."));
+        "Choose a scenario. Each row states the goal and the deadline. Playing it replaces the city on the map."));
     intro->set_halign(Gtk::ALIGN_START);
     intro->set_line_wrap(true);
     intro->set_max_width_chars(52);
 
     auto *view = Gtk::manage(new Gtk::TreeView(store));
     view->append_column("Scenario", columns.scenario);
+    auto *goal_column = Gtk::manage(new Gtk::TreeViewColumn("Goal"));
+    auto *goal_cell = Gtk::manage(new Gtk::CellRendererText());
+    goal_cell->property_wrap_width() = 280;
+    goal_cell->property_wrap_mode() = Pango::WRAP_WORD_CHAR;
+    goal_column->pack_start(*goal_cell, true);
+    goal_column->add_attribute(goal_cell->property_text(), columns.goal);
+    goal_column->set_expand(true);
+    view->append_column(*goal_column);
     view->append_column("Notes", columns.notes);
     view->set_headers_visible(true);
     if (auto *name_column = view->get_column(0)) {
-        name_column->set_min_width(200);
+        name_column->set_min_width(180);
     }
-    if (auto *notes_column = view->get_column(1)) {
-        notes_column->set_expand(true);
+    if (auto *notes_column = view->get_column(2)) {
+        notes_column->set_min_width(160);
     }
     view->get_selection()->set_mode(Gtk::SELECTION_BROWSE);
     if (auto first = store->children().begin()) {
@@ -1352,6 +1521,99 @@ int hostile_review_window_probe(AppWindow &window, int op)
             return 0;
         }
         return 1;
+    }
+    if (op == 4) {
+        // Queue the win dialog the same way a running city does. The caller
+        // closes it while dialog.run() is nested.
+        window.session_->set_speed(3);
+        hostile_review_session_probe(*window.session_, 5);
+        return window.session_->outcome_pause_pending() && window.session_->speed() == 0 ? 1 : 0;
+    }
+    if (op == 5) {
+        if (!window.replace_with_scenario(SC_DULLSVILLE)) {
+            return 0;
+        }
+        const std::string goal = window.goal_label_.get_text();
+        const std::string years = window.years_label_.get_text();
+        if (window.message_label_.get_text() != "Playing Dullsville." || !window.goal_label_.get_visible() ||
+            !window.years_label_.get_visible() || years != "30 years left" ||
+            goal.find("30 years left") == std::string::npos || goal.find("Metropolis") == std::string::npos ||
+            goal.find("100,000") == std::string::npos || goal.find("30 years") == std::string::npos) {
+            std::fprintf(stderr, "goal '%s' years '%s' bar '%s'\n", goal.c_str(), years.c_str(),
+                         window.message_label_.get_text().c_str());
+            return 0;
+        }
+        return 1;
+    }
+    if (op == 6) {
+        int bits = 0;
+        if (window.session_->speed() == 0 && window.speed_ == 0) {
+            bits |= 1;
+        }
+        if (window.date_label_.get_text().find("Paused") != std::string::npos) {
+            bits |= 2;
+        }
+        if (window.welcome_bar_.get_visible()) {
+            bits |= 4;
+        }
+        if (window.tools_.get_has_tooltip()) {
+            bits |= 8;
+        }
+        const std::string tip = window.welcome_label_.get_text();
+        if (tip.find("Play Scenario") != std::string::npos && tip.find("New City") != std::string::npos &&
+            tip.find("paused") != std::string::npos) {
+            bits |= 16;
+        }
+        return bits;
+    }
+    if (op == 7) {
+        window.welcome_dismiss_.clicked();
+        return window.welcome_bar_.get_visible() ? 0 : 1;
+    }
+    if (op == 8) {
+        auto toward_origin = [&](CitySession::MapLayer layer) {
+            window.center_on_fraction(0.5, 0.5);
+            const double before_x = window.scroll_.get_hadjustment()->get_value();
+            const double before_y = window.scroll_.get_vadjustment()->get_value();
+            const int index = static_cast<int>(layer);
+            window.overlays_[index]->present_map();
+            while (Gtk::Main::events_pending()) {
+                Gtk::Main::iteration(false);
+            }
+            window.overlays_[index]->click_at(8, 8);
+            const double after_x = window.scroll_.get_hadjustment()->get_value();
+            const double after_y = window.scroll_.get_vadjustment()->get_value();
+            window.overlays_[index]->hide();
+            if (!(after_x < before_x - 20.0 && after_y < before_y - 20.0)) {
+                std::fprintf(stderr, "layer %d before %.1f,%.1f after %.1f,%.1f\n", index, before_x, before_y,
+                             after_x, after_y);
+                return false;
+            }
+            return true;
+        };
+        if (!toward_origin(CitySession::MapLayer::Power)) {
+            return 2;
+        }
+        if (!toward_origin(CitySession::MapLayer::Water)) {
+            return 3;
+        }
+        if (!toward_origin(CitySession::MapLayer::Crime)) {
+            return 4;
+        }
+        return 1;
+    }
+    if (op == 9) {
+        window.on_play_scenario();
+        return 1;
+    }
+    if (op == 11) {
+        return window.session_->speed() + (window.session_->outcome_pause_pending() ? 10 : 0);
+    }
+    if (op == 12) {
+        if (!window.replace_with_scenario(SC_SAN_FRANCISCO)) {
+            return 0;
+        }
+        return window.session_->speed() == 3 && !window.session_->outcome_pause_pending() ? 1 : 0;
     }
     return 0;
 }

@@ -87,10 +87,19 @@ BudgetWindow::BudgetWindow()
     tune(police_, 100);
     tune(fire_, 100);
 
-    for (Gtk::Label *label : {&taxes_, &cash_flow_, &funds_, &projected_, &tax_value_, &road_value_,
-                              &police_value_, &fire_value_}) {
+    for (Gtk::Label *label : {&taxes_, &cash_flow_, &funds_, &projected_, &tax_value_}) {
         label->set_halign(Gtk::ALIGN_START);
         label->set_xalign(0);
+    }
+    // Cut sentences are one long line. Wrap them so the book stays near
+    // its 560 px default instead of growing out to the full sentence.
+    for (Gtk::Label *label : {&road_value_, &police_value_, &fire_value_}) {
+        label->set_halign(Gtk::ALIGN_START);
+        label->set_xalign(0);
+        label->set_line_wrap(true);
+        label->set_line_wrap_mode(Pango::WRAP_WORD_CHAR);
+        label->set_max_width_chars(52);
+        label->set_width_chars(48);
     }
 
     auto *grid = Gtk::manage(new Gtk::Grid());
@@ -141,29 +150,40 @@ BudgetWindow::BudgetWindow()
 
     add(root_);
 
-    tax_.signal_value_changed().connect([this] {
-        if (!updating_ && session_ != nullptr) {
-            session_->set_tax(static_cast<int>(tax_.get_value() + 0.5));
-            sync();
+    // A scale can report a fraction that rounds to the percent already
+    // showing, including 0. That is not a new request. Snapping the
+    // scale keeps the cut sentence. An explicit move to a different
+    // percent, including a real move to 0%, still goes through.
+    auto on_scale = [this](Gtk::Scale &scale, int shown, auto apply) {
+        if (updating_ || session_ == nullptr) {
+            return;
         }
+        const int percent = static_cast<int>(scale.get_value() + 0.5);
+        if (percent == shown) {
+            if (scale.get_value() != static_cast<double>(percent)) {
+                updating_ = true;
+                scale.set_value(percent);
+                updating_ = false;
+            }
+            return;
+        }
+        apply(percent);
+        sync();
+    };
+    tax_.signal_value_changed().connect([this, on_scale] {
+        on_scale(tax_, session_ == nullptr ? -1 : session_->tax(), [this](int percent) { session_->set_tax(percent); });
     });
-    road_.signal_value_changed().connect([this] {
-        if (!updating_ && session_ != nullptr) {
-            session_->set_road_funding(static_cast<int>(road_.get_value() + 0.5));
-            sync();
-        }
+    road_.signal_value_changed().connect([this, on_scale] {
+        on_scale(road_, session_ == nullptr ? -1 : session_->budget().road_percent,
+                 [this](int percent) { session_->set_road_funding(percent); });
     });
-    police_.signal_value_changed().connect([this] {
-        if (!updating_ && session_ != nullptr) {
-            session_->set_police_funding(static_cast<int>(police_.get_value() + 0.5));
-            sync();
-        }
+    police_.signal_value_changed().connect([this, on_scale] {
+        on_scale(police_, session_ == nullptr ? -1 : session_->budget().police_percent,
+                 [this](int percent) { session_->set_police_funding(percent); });
     });
-    fire_.signal_value_changed().connect([this] {
-        if (!updating_ && session_ != nullptr) {
-            session_->set_fire_funding(static_cast<int>(fire_.get_value() + 0.5));
-            sync();
-        }
+    fire_.signal_value_changed().connect([this, on_scale] {
+        on_scale(fire_, session_ == nullptr ? -1 : session_->budget().fire_percent,
+                 [this](int percent) { session_->set_fire_funding(percent); });
     });
 }
 
@@ -232,13 +252,17 @@ void BudgetWindow::sync()
     apply_mode();
     if (session_->budget_pending()) {
         taxes_.set_text("Taxes collected: " + money(book.taxes));
-    } else if (!book.taxes_known) {
-        taxes_.set_text("No tax receipt in this file");
+    } else if (book.estimates || !book.taxes_known) {
+        taxes_.set_text("Estimated taxes, not yet collected: " + money(book.taxes));
     } else {
         taxes_.set_text("Last January's taxes: " + money(book.taxes));
     }
-    cash_flow_.set_text(std::string("Cash flow: ") + (book.cash_flow > 0 ? "+" : "") +
-                        money(book.cash_flow));
+    if (!session_->budget_pending() && book.estimates) {
+        closing_note_.set_text("The first tax year has not been collected yet. These figures are estimates.");
+        closing_note_.show();
+    }
+    cash_flow_.set_text(std::string(book.estimates ? "Estimated cash flow: " : "Cash flow: ") +
+                        (book.cash_flow > 0 ? "+" : "") + money(book.cash_flow));
     funds_.set_text("Previous funds: " + money(book.previous_funds));
     projected_.set_text("Current funds: " + money(book.funds));
 
@@ -249,11 +273,12 @@ void BudgetWindow::sync()
     set_funding_quietly(fire_, book.fire_percent);
     updating_ = false;
 
-    auto funding_line = [](long need, int percent, long spent, const std::string &note) {
+    const char *request = book.estimates ? "Estimated request " : "Request ";
+    auto funding_line = [request](long need, int percent, long spent, const std::string &note) {
         if (note.empty()) {
-            return "Request " + money(need) + "    " + std::to_string(percent) + "% = " + money(spent);
+            return std::string(request) + money(need) + "    " + std::to_string(percent) + "% = " + money(spent);
         }
-        return "Request " + money(need) + "    " + note + " = " + money(spent);
+        return std::string(request) + money(need) + "    " + note + " = " + money(spent);
     };
     tax_value_.set_text(std::to_string(book.tax_percent) + "%");
     road_value_.set_text(funding_line(book.road_need, book.road_percent, book.road_spent, book.road_note));

@@ -908,10 +908,6 @@ void Micropolis::collectTax()
     /**
      * @todo Break out so the user interface can configure this.
      */
-    static const float RLevels[3] = { 0.7, 0.9, 1.2 };
-
-    assert(LEVEL_COUNT == LENGTH_OF(RLevels));
-
     cashFlow = 0;
 
     /**
@@ -927,10 +923,12 @@ void Micropolis::collectTax()
 
         cityTaxAverage = 0;
 
-        policeFund = (long)policeStationPop * 100;
-        fireFund = (long)fireStationPop * 100;
-        roadFund = (long)((roadTotal + (railTotal * 2)) * RLevels[gameLevel]);
-        recomputeTaxFund();
+        const BudgetBases bases = projectBudget(roadTotal, railTotal, policeStationPop, fireStationPop, totalPop,
+                                                landValueAverage, cityTax);
+        policeFund = bases.police;
+        fireFund = bases.fire;
+        roadFund = bases.road;
+        taxFund = bases.tax;
         taxReceiptKnown = true;
 
         if (totalPop > 0) {
@@ -992,15 +990,9 @@ void Micropolis::updateFundEffects()
 
 void Micropolis::recomputeTaxFund()
 {
-    static const float FLevels[3] = { 1.4f, 1.2f, 0.8f };
-    int level = (int)gameLevel;
-    if (level < 0 || level >= LEVEL_COUNT) {
-        level = 0;
-    }
-    taxFund = (long)((((Quad)totalPop * (Quad)landValueAverage) / 120) * (Quad)cityTax * FLevels[level]);
-    if (taxFund < 0) {
-        taxFund = 0;
-    }
+    taxFund = projectBudget(roadTotal, railTotal, policeStationPop, fireStationPop, totalPop, landValueAverage,
+                            cityTax)
+                  .tax;
 }
 
 
