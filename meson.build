@@ -1,13 +1,13 @@
 project(
   'lunduke-city',
   'cpp',
-  version: '0.9.0',
+  version: '0.9.1',
   default_options: ['cpp_std=c++17', 'warning_level=2'],
   meson_version: '>= 0.60',
 )
 
-# Debian revision. The Meson project version stays 0.9.0.
-lunduke_package_version = '0.9-10'
+# Debian package version. The Meson project version is 0.9.1.
+lunduke_package_version = '0.9.1-1'
 
 gtkmm_dep = dependency('gtkmm-3.0')
 thread_dep = dependency('threads')
