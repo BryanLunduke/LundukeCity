@@ -1,7 +1,7 @@
 # Lunduke City
 
-Lunduke City is a windowed city-building game for LCOS. Version 0.9.3
-(Debian package 0.9.3-1, Meson project version 0.9.3) is the LCOS 0.9.3
+Lunduke City is a windowed city-building game for LCOS. Version 0.9.4
+(Debian package 0.9.4-1, Meson project version 0.9.4) is the LCOS 0.9.4
 release track: classic menu / funds / tool-palette / map layout, wired
 to the Micropolis simulation engine. The map uses the Micropolis
 16-pixel tiles, and trains, ships, aircraft, tornadoes, and the monster
