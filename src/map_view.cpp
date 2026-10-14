@@ -293,6 +293,9 @@ void MapView::sync()
 
 bool MapView::on_blink()
 {
+    if (!active_ || !get_mapped()) {
+        return true;
+    }
     blink_on_ = !blink_on_;
     sync();
     return true;

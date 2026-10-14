@@ -16,6 +16,7 @@
 
 #include <gdkmm/pixbuf.h>
 #include <glibmm/main.h>
+#include <glibmm/miscutils.h>
 #include <gtk/gtk.h>
 #include <gtkmm/cellrenderertext.h>
 #include <gtkmm/dialog.h>
@@ -34,6 +35,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <unistd.h>
 
 static_assert(static_cast<unsigned>(GDK_KEY_equal) == 0x03d, "equal keysym");
 static_assert(static_cast<unsigned>(GDK_KEY_plus) == 0x02b, "plus keysym");
@@ -49,11 +51,12 @@ namespace {
 // under XDG system dirs or an XFCE config tree.
 std::string welcome_dismiss_path()
 {
-    const char *home = std::getenv("HOME");
-    if (home == nullptr || home[0] != '/') {
+    // XDG_CONFIG_HOME when set, else ~/.config (C-7).
+    const std::string base = Glib::get_user_config_dir();
+    if (base.empty() || base[0] != '/') {
         return {};
     }
-    const std::string dir = std::string(home) + "/.config/lunduke-city";
+    const std::string dir = base + "/lunduke-city";
     if (dir.find("/xfce") != std::string::npos) {
         return {};
     }
@@ -177,7 +180,11 @@ AppWindow::AppWindow()
     add(root_);
     show_all_children();
 
-    session_->set_listener([this] { refresh(); });
+    session_->set_listener([this] {
+        if (!iconified_) {
+            refresh();
+        }
+    });
     // The first screen is paused. A speed chosen later is what New City
     // and a scenario keep. Space still resumes at Medium.
     speed_ = 0;
@@ -363,6 +370,12 @@ void AppWindow::build_menus()
     const char *speed_labels[] = {"_Pause", "Slo_w", "M_edium", "_Fast"};
     for (int i = 0; i < 4; ++i) {
         speed_items_[i] = Gtk::manage(new Gtk::RadioMenuItem(speed_group, speed_labels[i], true));
+        // Ctrl+P toggles pause (handled in on_key_press_event so a second
+        // press resumes). Ctrl+1/2/3 pick Slow/Medium/Fast. Space on the
+        // map still toggles pause too.
+        const guint speed_keys[] = {GDK_KEY_p, GDK_KEY_1, GDK_KEY_2, GDK_KEY_3};
+        speed_items_[i]->add_accelerator("activate", accel_, speed_keys[i], Gdk::CONTROL_MASK,
+                                         Gtk::ACCEL_VISIBLE);
         options_menu->append(*speed_items_[i]);
     }
     options_menu->append(*Gtk::manage(new Gtk::SeparatorMenuItem()));
@@ -388,12 +401,38 @@ void AppWindow::build_menus()
     auto *disasters_menu = Gtk::manage(new Gtk::Menu());
     auto *disasters = Gtk::manage(new Gtk::MenuItem("_Disasters", true));
     disasters->set_submenu(*disasters_menu);
-    add_item(disasters_menu, "_Fire", 0, [this] { session_->disaster_fire(); });
-    add_item(disasters_menu, "F_lood", 0, [this] { session_->disaster_flood(); });
-    add_item(disasters_menu, "_Tornado", 0, [this] { session_->disaster_tornado(); });
-    add_item(disasters_menu, "_Earthquake", 0, [this] { session_->disaster_earthquake(); });
-    add_item(disasters_menu, "M_onster", 0, [this] { session_->disaster_monster(); });
-    add_item(disasters_menu, "_Meltdown", 0, [this] { session_->disaster_meltdown(); });
+    // Disasters cannot be undone, so each one asks first (C-4).
+    add_item(disasters_menu, "_Fire…", 0, [this] {
+        if (confirm_disaster("Fire", "A fire will break out somewhere in the city.")) {
+            session_->disaster_fire();
+        }
+    });
+    add_item(disasters_menu, "F_lood…", 0, [this] {
+        if (confirm_disaster("Flood", "Water will flood land near the shore.")) {
+            session_->disaster_flood();
+        }
+    });
+    add_item(disasters_menu, "_Tornado…", 0, [this] {
+        if (confirm_disaster("Tornado", "A tornado will tear through the city.")) {
+            session_->disaster_tornado();
+        }
+    });
+    add_item(disasters_menu, "_Earthquake…", 0, [this] {
+        if (confirm_disaster("Earthquake", "An earthquake will damage buildings and start fires.")) {
+            session_->disaster_earthquake();
+        }
+    });
+    add_item(disasters_menu, "M_onster…", 0, [this] {
+        if (confirm_disaster("Monster", "A monster will walk through the city and destroy what it touches.")) {
+            session_->disaster_monster();
+        }
+    });
+    add_item(disasters_menu, "_Meltdown…", 0, [this] {
+        if (confirm_disaster("Meltdown",
+                             "A nuclear power plant will melt down and leave radiation behind.")) {
+            session_->disaster_meltdown();
+        }
+    });
     menu_bar_.append(*disasters);
 
     auto *windows_menu = Gtk::manage(new Gtk::Menu());
@@ -440,15 +479,7 @@ void AppWindow::bind_session()
         refresh();
     });
     map_.signal_zoom.connect(sigc::mem_fun(*this, &AppWindow::zoom_by));
-    map_.signal_pause_toggle.connect([this] {
-        if (speed_ == 0) {
-            set_speed(paused_from_speed_ > 0 ? paused_from_speed_ : 2);
-        } else {
-            paused_from_speed_ = speed_;
-            set_speed(0);
-        }
-        sync_option_checks();
-    });
+    map_.signal_pause_toggle.connect(sigc::mem_fun(*this, &AppWindow::toggle_pause));
     map_.signal_pan.connect([this](int dx, int dy) {
         auto ha = scroll_.get_hadjustment();
         auto va = scroll_.get_vadjustment();
@@ -517,6 +548,7 @@ void AppWindow::bind_session()
 
 void AppWindow::refresh()
 {
+    ++refresh_count_;
     funds_label_.set_text(session_->funds_text());
     name_label_.set_text(session_->city_name());
     const int speed = session_->speed();
@@ -542,7 +574,11 @@ void AppWindow::refresh()
         goal_label_.set_text(progress);
         goal_label_.show();
     }
-    set_title("Lunduke City - " + session_->city_name());
+    const std::string title = "Lunduke City - " + session_->city_name();
+    if (title != shown_title_) {
+        shown_title_ = title;
+        set_title(title);
+    }
 
     const auto now = std::chrono::steady_clock::now();
     const std::string engine_message = session_->message();
@@ -821,8 +857,86 @@ bool AppWindow::on_tick()
         return true;
     }
     session_->tick();
-    refresh();
+    if (refresh_needed()) {
+        refresh();
+    }
     return true;
+}
+
+AppWindow::ShownState AppWindow::current_shown_state() const
+{
+    ShownState state;
+    state.map_serial = session_->map_serial();
+    state.city_time = session_->city_time();
+    state.funds = session_->funds_text();
+    state.name = session_->city_name();
+    state.message_serial = session_->message_serial();
+    state.query_serial = session_->query_serial();
+    state.speed = session_->speed();
+    state.sim_paused = session_->simulation_paused();
+    state.notice_expired =
+        hint_after_.time_since_epoch().count() == 0 || std::chrono::steady_clock::now() >= hint_after_;
+    state.budget_pending = session_->budget_pending();
+    state.years_left = session_->scenario_years_left();
+    return state;
+}
+
+// C-2: a running city refreshes every tick. A paused city only refreshes
+// when something it shows has changed, and a minimized or hidden window
+// does not refresh at all until it is shown again.
+bool AppWindow::refresh_needed()
+{
+    if (iconified_ || !get_visible()) {
+        return false;
+    }
+    if (quake_strength_ > 0) {
+        return true;
+    }
+    ShownState now = current_shown_state();
+    const bool running = now.speed != 0 && !now.sim_paused;
+    if (!running && now == shown_state_) {
+        return false;
+    }
+    shown_state_ = std::move(now);
+    return true;
+}
+
+bool AppWindow::on_window_state_event(GdkEventWindowState *event)
+{
+    if (event != nullptr && (event->changed_mask & GDK_WINDOW_STATE_ICONIFIED) != 0) {
+        iconified_ = (event->new_window_state & GDK_WINDOW_STATE_ICONIFIED) != 0;
+        map_.set_active(!iconified_);
+        if (!iconified_ && session_) {
+            shown_state_ = current_shown_state();
+            refresh();
+        }
+    }
+    return Gtk::ApplicationWindow::on_window_state_event(event);
+}
+
+void AppWindow::toggle_pause()
+{
+    if (speed_ == 0) {
+        set_speed(paused_from_speed_ > 0 ? paused_from_speed_ : 2);
+    } else {
+        paused_from_speed_ = speed_;
+        set_speed(0);
+    }
+    sync_option_checks();
+    refresh();
+}
+
+bool AppWindow::confirm_disaster(const char *name, const char *detail)
+{
+    ModalPause pause(*this);
+    Gtk::MessageDialog dialog(*this, std::string("Start a ") + name + "?", false, Gtk::MESSAGE_WARNING,
+                              Gtk::BUTTONS_NONE, true);
+    dialog.set_title(std::string("Disaster: ") + name);
+    dialog.set_secondary_text(std::string(detail) + " This cannot be undone.");
+    dialog.add_button("_Cancel", Gtk::RESPONSE_CANCEL);
+    dialog.add_button(std::string("_Start ") + name, Gtk::RESPONSE_ACCEPT);
+    dialog.set_default_response(Gtk::RESPONSE_CANCEL);
+    return dialog.run() == Gtk::RESPONSE_ACCEPT;
 }
 
 bool AppWindow::on_key_press_event(GdkEventKey *event)
@@ -830,6 +944,12 @@ bool AppWindow::on_key_press_event(GdkEventKey *event)
     if (event != nullptr) {
         // Shift is not required. Ctrl and the +/= key arrives as GDK_KEY_equal.
         // Ctrl and the minus key arrives as GDK_KEY_minus.
+        // Ctrl+P toggles pause, so a second press resumes the old speed.
+        const guint mods = event->state & (GDK_CONTROL_MASK | GDK_SHIFT_MASK | GDK_MOD1_MASK);
+        if (mods == GDK_CONTROL_MASK && (event->keyval == GDK_KEY_p || event->keyval == GDK_KEY_P)) {
+            toggle_pause();
+            return true;
+        }
         const ZoomAction action = zoom_action(event->keyval, event->state);
         if (action == ZoomAction::In) {
             zoom_by(2);
@@ -1747,6 +1867,198 @@ int hostile_review_window_probe(AppWindow &window, int op)
     if (op == 19) {
         window.session_->rename_city("Dirty Town");
         return window.session_->needs_save_prompt() && window.session_->city_name() == "Dirty Town" ? 1 : 0;
+    }
+    return 0;
+}
+
+namespace {
+
+void round8_run_for(int milliseconds)
+{
+    bool done = false;
+    Glib::signal_timeout().connect_once([&done] { done = true; }, milliseconds);
+    while (!done) {
+        Gtk::Main::iteration(true);
+    }
+}
+
+Gtk::MenuItem *round8_find_item(Gtk::MenuShell &shell, const Glib::ustring &label)
+{
+    for (Gtk::Widget *child : shell.get_children()) {
+        auto *item = dynamic_cast<Gtk::MenuItem *>(child);
+        if (item == nullptr) {
+            continue;
+        }
+        if (item->get_label() == label) {
+            return item;
+        }
+        if (Gtk::Menu *sub = item->get_submenu()) {
+            if (Gtk::MenuItem *found = round8_find_item(*sub, label)) {
+                return found;
+            }
+        }
+    }
+    return nullptr;
+}
+
+bool round8_accel_is(Gtk::MenuItem *item, GtkAccelGroup *group, guint key, GdkModifierType mods)
+{
+    // The item owns a visible accelerator for key+mods in the window's group.
+    if (item == nullptr) {
+        return false;
+    }
+    guint count = 0;
+    GtkAccelGroupEntry *entries = gtk_accel_group_query(group, key, mods, &count);
+    GList *closures = gtk_widget_list_accel_closures(GTK_WIDGET(item->gobj()));
+    bool found = false;
+    for (guint i = 0; i < count && !found; ++i) {
+        const bool visible = (entries[i].key.accel_flags & GTK_ACCEL_VISIBLE) != 0;
+        found = visible && g_list_find(closures, entries[i].closure) != nullptr;
+    }
+    g_list_free(closures);
+    return found;
+}
+
+bool round8_answer_dialog(const char *title, int response, bool &seen)
+{
+    for (Gtk::Window *top : Gtk::Window::list_toplevels()) {
+        auto *dialog = dynamic_cast<Gtk::MessageDialog *>(top);
+        if (dialog == nullptr || !dialog->get_visible()) {
+            continue;
+        }
+        if (title != nullptr && dialog->get_title() != title) {
+            continue;
+        }
+        seen = true;
+        dialog->response(response);
+        return false;
+    }
+    return true;
+}
+
+} // namespace
+
+// Round 8 window checks. Returns a count or a bit set; see tests/ui_round8.cpp.
+int round8_window_probe(AppWindow &window, int op)
+{
+    if (op == 1 || op == 2) {
+        // Refreshes over one second, paused (1) or running at Medium (2).
+        window.set_speed(op == 1 ? 0 : 2);
+        window.sync_option_checks();
+        round8_run_for(300);
+        const unsigned long before = window.refresh_count_;
+        round8_run_for(1000);
+        return static_cast<int>(window.refresh_count_ - before);
+    }
+    if (op == 3) {
+        // A minimized running city keeps simulating but does not refresh.
+        window.set_speed(3);
+        window.sync_option_checks();
+        window.iconified_ = true;
+        window.map_.set_active(false);
+        const long long time_before = window.session_->city_time();
+        const unsigned long before = window.refresh_count_;
+        round8_run_for(2500);
+        const int refreshes = static_cast<int>(window.refresh_count_ - before);
+        const bool advanced = window.session_->city_time() != time_before;
+        window.iconified_ = false;
+        window.map_.set_active(true);
+        if (refreshes != 0 || !advanced) {
+            std::fprintf(stderr, "minimized refreshes=%d advanced=%d\n", refreshes, advanced);
+        }
+        return refreshes == 0 && advanced ? 1 : 0;
+    }
+    if (op == 4) {
+        // Menu accelerators: Pause Ctrl+P, Slow/Medium/Fast Ctrl+1/2/3.
+        int bits = 0;
+        const auto ctrl = GDK_CONTROL_MASK;
+        bits |= round8_accel_is(window.speed_items_[0], window.accel_->gobj(), GDK_KEY_p, ctrl) ? 1 : 0;
+        bits |= round8_accel_is(window.speed_items_[1], window.accel_->gobj(), GDK_KEY_1, ctrl) ? 2 : 0;
+        bits |= round8_accel_is(window.speed_items_[2], window.accel_->gobj(), GDK_KEY_2, ctrl) ? 4 : 0;
+        bits |= round8_accel_is(window.speed_items_[3], window.accel_->gobj(), GDK_KEY_3, ctrl) ? 8 : 0;
+        // Ctrl+3 is Fast, Ctrl+P pauses, Ctrl+P again resumes Fast, Ctrl+1 is Slow.
+        auto round8_press = [](AppWindow &target, guint key) {
+            GdkEventKey event{};
+            event.type = GDK_KEY_PRESS;
+            event.window = target.get_window() ? target.get_window()->gobj() : nullptr;
+            event.send_event = TRUE;
+            event.state = GDK_CONTROL_MASK;
+            event.keyval = key;
+            // Same order as a real key press: the window's own handler, then
+            // the menu accelerators.
+            if (!target.on_key_press_event(&event)) {
+                gtk_accel_groups_activate(G_OBJECT(target.gobj()), key, GDK_CONTROL_MASK);
+            }
+        };
+        window.set_speed(2);
+        window.sync_option_checks();
+        round8_press(window, GDK_KEY_3);
+        const bool fast = window.session_->speed() == 3 && window.speed_items_[3]->get_active();
+        round8_press(window, GDK_KEY_p);
+        const bool paused = window.session_->speed() == 0 && window.speed_items_[0]->get_active();
+        round8_press(window, GDK_KEY_p);
+        const bool resumed = window.session_->speed() == 3 && window.speed_items_[3]->get_active();
+        round8_press(window, GDK_KEY_1);
+        const bool slow = window.session_->speed() == 1;
+        if (fast && paused && resumed && slow) {
+            bits |= 16;
+        } else {
+            std::fprintf(stderr, "keys fast=%d paused=%d resumed=%d slow=%d\n", fast, paused, resumed, slow);
+        }
+        return bits;
+    }
+    if (op == 5 || op == 6) {
+        // Earthquake asks first. 5 answers Cancel, 6 answers Start.
+        const bool accept = op == 6;
+        window.set_speed(0);
+        window.sync_option_checks();
+        const std::string path = "/tmp/lunduke-round8-disaster-" + std::to_string(getpid()) + ".cty";
+        if (!window.session_->save_city_as(path)) {
+            return 0;
+        }
+        std::remove(path.c_str());
+        Gtk::MenuItem *item = round8_find_item(window.menu_bar_, "_Earthquake…");
+        if (item == nullptr) {
+            std::fprintf(stderr, "no Earthquake… item\n");
+            return 0;
+        }
+        bool seen = false;
+        const int response = accept ? Gtk::RESPONSE_ACCEPT : Gtk::RESPONSE_CANCEL;
+        sigc::connection answer = Glib::signal_timeout().connect(
+            [&]() -> bool { return round8_answer_dialog("Disaster: Earthquake", response, seen); }, 50);
+        item->activate();
+        answer.disconnect();
+        if (!seen) {
+            std::fprintf(stderr, "no confirm dialog\n");
+            return 0;
+        }
+        return window.session_->needs_save_prompt() == accept ? 1 : 0;
+    }
+    if (op == 7) {
+        // C-1 in the window: save, let time run, and Quit must ask to save.
+        const std::string path = "/tmp/lunduke-round8-quit-" + std::to_string(getpid()) + ".cty";
+        if (!window.session_->save_city_as(path)) {
+            return 0;
+        }
+        std::remove(path.c_str());
+        window.set_speed(3);
+        window.sync_option_checks();
+        const long long before = window.session_->city_time();
+        for (int i = 0; i < 100 && window.session_->city_time() < before + 2; ++i) {
+            round8_run_for(200);
+        }
+        window.set_speed(0);
+        window.sync_option_checks();
+        if (window.session_->city_time() < before + 2) {
+            std::fprintf(stderr, "time did not move\n");
+            return 0;
+        }
+        bool seen = false;
+        sigc::connection answer = Glib::signal_timeout().connect(
+            [&]() -> bool { return round8_answer_dialog(nullptr, Gtk::RESPONSE_CANCEL, seen); }, 50);
+        window.on_quit();
+        answer.disconnect();
+        return seen && window.get_visible() ? 1 : 0;
     }
     return 0;
 }

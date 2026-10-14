@@ -640,6 +640,7 @@ void CitySession::new_city(const NewCitySpec &spec)
     save_path_.clear();
     message_.clear();
     dirty_ = false;
+    mark_clean_time();
     eval_month_ = -1;
     eval_month_pending_ = false;
     ready_ = true;
@@ -722,6 +723,7 @@ bool CitySession::load_city(const std::string &path)
     save_path_ = path;
     ready_ = true;
     dirty_ = false;
+    mark_clean_time();
     eval_month_ = -1;
     eval_month_pending_ = false;
     post_message("Loaded a saved city.");
@@ -782,6 +784,7 @@ bool CitySession::load_scenario(int id)
     save_path_.clear();
     ready_ = true;
     dirty_ = false;
+    mark_clean_time();
     eval_month_ = -1;
     eval_month_pending_ = false;
     post_message(std::string("Playing ") + entry->def.name + ".");
@@ -805,6 +808,7 @@ bool CitySession::save_city_as(const std::string &path)
     }
     save_path_ = path;
     dirty_ = false;
+    mark_clean_time();
     post_message("City saved.");
     return true;
 }
@@ -1260,9 +1264,25 @@ long CitySession::stored_assessed_value() const
     return static_cast<long>(engine_->sim.cityAssessedValue);
 }
 
+void CitySession::mark_clean_time()
+{
+    saved_city_time_ = engine_ ? static_cast<long long>(engine_->sim.cityTime) : 0;
+}
+
+long long CitySession::city_time() const
+{
+    return static_cast<long long>(engine_->sim.cityTime);
+}
+
+bool CitySession::time_advanced_since_save() const
+{
+    // Years of growth, taxes, and auto-budget are unsaved work too.
+    return ready_ && static_cast<long long>(engine_->sim.cityTime) != saved_city_time_;
+}
+
 bool CitySession::needs_save_prompt() const
 {
-    return dirty_ || budget_pending();
+    return dirty_ || budget_pending() || time_advanced_since_save();
 }
 
 bool CitySession::take_view_target(int &tile_x, int &tile_y)

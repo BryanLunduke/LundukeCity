@@ -58,6 +58,10 @@ private:
     void show_tool_hint();
     void clear_transient_message();
     void set_speed(int speed);
+    void toggle_pause();
+    bool confirm_disaster(const char *name, const char *detail);
+    bool refresh_needed();
+    bool on_window_state_event(GdkEventWindowState *event) override;
     void center_on_fraction(double fx, double fy);
     void zoom_by(int delta);
     void show_query_dialog(const std::string &text);
@@ -154,6 +158,35 @@ private:
     bool tax_budget_modal_ = false;
     int paused_from_speed_ = 2;
 
+    // What the last refresh() showed. A paused city skips refresh() until
+    // one of these changes (C-2). A minimized window skips it entirely.
+    struct ShownState {
+        unsigned map_serial = 0;
+        long long city_time = -1;
+        std::string funds;
+        std::string name;
+        int message_serial = -1;
+        int query_serial = -1;
+        int speed = -1;
+        bool sim_paused = false;
+        bool notice_expired = false;
+        bool budget_pending = false;
+        int years_left = -2;
+        bool operator==(const ShownState &o) const
+        {
+            return map_serial == o.map_serial && city_time == o.city_time && funds == o.funds &&
+                   name == o.name && message_serial == o.message_serial &&
+                   query_serial == o.query_serial && speed == o.speed && sim_paused == o.sim_paused &&
+                   notice_expired == o.notice_expired && budget_pending == o.budget_pending &&
+                   years_left == o.years_left;
+        }
+    };
+    ShownState current_shown_state() const;
+    ShownState shown_state_;
+    bool iconified_ = false;
+    std::string shown_title_;
+    unsigned long refresh_count_ = 0;
+
     class ModalPause {
     public:
         explicit ModalPause(AppWindow &window) : window_(window) { window_.begin_modal(); }
@@ -170,10 +203,12 @@ private:
 
 #ifdef LUNDUKE_CITY_TEST_HOOKS
     friend int hostile_review_window_probe(AppWindow &window, int op);
+    friend int round8_window_probe(AppWindow &window, int op);
 #endif
 };
 
 #ifdef LUNDUKE_CITY_TEST_HOOKS
 // Drives load, scenario, and announcement-pause paths without a file dialog.
 int hostile_review_window_probe(AppWindow &window, int op);
+int round8_window_probe(AppWindow &window, int op);
 #endif

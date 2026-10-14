@@ -197,6 +197,8 @@ public:
     long stored_assessed_value() const;
     // Unsaved tools, budget, disasters, rename, or a tax year still open.
     bool needs_save_prompt() const;
+    bool time_advanced_since_save() const;
+    long long city_time() const;
     // Tile the engine asked the view to center on (auto-goto).
     bool take_view_target(int &tile_x, int &tile_y);
     // Strength of a quake the engine just started, 0 if none is waiting.
@@ -333,6 +335,8 @@ private:
     bool simulation_paused_ = false;
     int speed_ = 2;
     bool dirty_ = false;
+    long long saved_city_time_ = 0;
+    void mark_clean_time();
     bool in_callback_ = false;
     bool eval_month_pending_ = false;
     int eval_month_ = -1;

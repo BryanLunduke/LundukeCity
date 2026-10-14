@@ -99,8 +99,8 @@ int main(int argc, char **argv)
         }
     }
     if (code == 0 && (!has_label(labels, "Save _City") || !has_label(labels, "Play _Scenario…") ||
-                      !has_label(labels, "Auto b_ulldoze") || !has_label(labels, "M_onster") ||
-                      !has_label(labels, "_Meltdown") || !has_label(labels, "_Pause") ||
+                      !has_label(labels, "Auto b_ulldoze") || !has_label(labels, "M_onster…") ||
+                      !has_label(labels, "_Meltdown…") || !has_label(labels, "_Pause") ||
                       !has_label(labels, "Slo_w") || !has_label(labels, "M_edium") ||
                       !has_label(labels, "_Fast"))) {
         for (const auto &label : labels) {

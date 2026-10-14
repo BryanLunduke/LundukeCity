@@ -665,6 +665,14 @@ bool Micropolis::loadFile(const char *filename)
     roadPercent = (float)n / (float)65536.0;
 
     cityTime = max((Quad)0, cityTime);
+    // A corrupted save must not jump the calendar thousands of years ahead.
+    // kMaxLoadedCityTime is year 9999 (48 cityTime units per year from 1900).
+    {
+        const Quad kMaxLoadedCityTime = (Quad)(9999 - 1900) * 48;
+        if (cityTime > kMaxLoadedCityTime) {
+            cityTime = kMaxLoadedCityTime;
+        }
+    }
 
     // If the tax is nonsensical, set it to a reasonable value.
     if (cityTax > 20 || cityTax < 0) {
