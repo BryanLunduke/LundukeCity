@@ -609,6 +609,7 @@ bool Micropolis::loadFileDir(const char *filename, const char *dir)
     std::memcpy(moneyHist, money.data(), money.size() * sizeof(short));
     std::memcpy(miscHist, misc.data(), misc.size() * sizeof(short));
     std::memcpy(&map[0][0], tiles.data(), tiles.size() * sizeof(short));
+    sanitizeLoadedZones();
 
     // 27120 is the classic payload. Newer saves append a city-name trailer,
     // then the cash-flow trailer, then the wide-value trailer.
@@ -638,6 +639,42 @@ bool Micropolis::loadFileDir(const char *filename, const char *dir)
     }
 
     return true;
+}
+
+/**
+ * Clear ZONEBIT from loaded zone centres whose footprint leaves the map.
+ * A damaged or crafted save can put a stadium, plant or any other zone
+ * centre on the edge; the simulation then writes its footprint outside
+ * the map array. Clearing the bit leaves the tile as inert scenery.
+ * @return Number of zone centres cleared.
+ */
+int Micropolis::sanitizeLoadedZones()
+{
+    int cleared = 0;
+    for (int x = 0; x < WORLD_W; x++) {
+        for (int y = 0; y < WORLD_H; y++) {
+            const MapValue v = map[x][y];
+            if (!(v & ZONEBIT)) {
+                continue;
+            }
+            const MapTile tile = v & LOMASK;
+            int below = 1;  // tiles needed left/above the centre
+            int above = 1;  // tiles needed right/below the centre
+            if (tile == AIRPORT) {
+                above = 4;
+            } else if (tile == POWERPLANT || tile == NUCLEAR ||
+                       tile == STADIUM || tile == FULLSTADIUM ||
+                       tile == PORT) {
+                above = 2;
+            }
+            if (x - below < 0 || y - below < 0 ||
+                x + above >= WORLD_W || y + above >= WORLD_H) {
+                map[x][y] = v & ~ZONEBIT;
+                cleared++;
+            }
+        }
+    }
+    return cleared;
 }
 
 /**

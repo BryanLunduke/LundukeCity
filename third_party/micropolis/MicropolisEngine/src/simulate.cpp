@@ -1666,8 +1666,11 @@ void Micropolis::doSpecialZone(const Position &pos, bool powerOn)
                 // Every now and then, display a match
                 if (((cityTime + pos.posX + pos.posY) & 31) == 0) {
                     drawStadium(pos, FULLSTADIUM);
-                    map[pos.posX + 1][pos.posY] = FOOTBALLGAME1 + ANIMBIT;
-                    map[pos.posX + 1][pos.posY + 1] = FOOTBALLGAME2 + ANIMBIT;
+                    // A crafted save can put a stadium centre on the edge.
+                    if (testBounds(pos.posX + 1, pos.posY + 1)) {
+                        map[pos.posX + 1][pos.posY] = FOOTBALLGAME1 + ANIMBIT;
+                        map[pos.posX + 1][pos.posY + 1] = FOOTBALLGAME2 + ANIMBIT;
+                    }
                 }
             }
 
@@ -1693,7 +1696,9 @@ void Micropolis::doSpecialZone(const Position &pos, bool powerOn)
             }
 
             // If powered, display a rotating radar
-            if (powerOn) {
+            if (!testBounds(pos.posX + 1, pos.posY - 1)) {
+                // Edge-placed airport from a crafted save: no radar tile.
+            } else if (powerOn) {
                 if ((map[pos.posX + 1][pos.posY - 1] & LOMASK) == RADAR) {
                     map[pos.posX + 1][pos.posY - 1] = RADAR0 + ANIMBIT + CONDBIT + BURNBIT;
                 }
@@ -1740,12 +1745,17 @@ void Micropolis::drawStadium(const Position &center, MapTile z)
 
     for (y = center.posY - 1; y < center.posY + 3; y++) {
         for (x = center.posX - 1; x < center.posX + 3; x++) {
-            map[x][y] = z | BNCNBIT;
+            // Skip footprint tiles outside the map (crafted or damaged saves).
+            if (testBounds(x, y)) {
+                map[x][y] = z | BNCNBIT;
+            }
             z++;
         }
     }
 
-    map[center.posX][center.posY] |= ZONEBIT | PWRBIT;
+    if (testBounds(center.posX, center.posY)) {
+        map[center.posX][center.posY] |= ZONEBIT | PWRBIT;
+    }
 }
 
 
@@ -1780,6 +1790,9 @@ void Micropolis::coalSmoke(const Position &pos)
     static const short dy[4] = { -1, -1,  0,  0 };
 
     for (short x = 0; x < 4; x++) {
+        if (!testBounds(pos.posX + dx[x], pos.posY + dy[x])) {
+            continue;  // edge-placed plant from a crafted or damaged save
+        }
         map[pos.posX + dx[x]][pos.posY + dy[x]] =
             SmTb[x] | ANIMBIT | CONDBIT | PWRBIT | BURNBIT;
     }
@@ -1800,6 +1813,9 @@ void Micropolis::doMeltdown(const Position &pos)
     // Whole power plant is at fire
     for (int x = pos.posX - 1; x < pos.posX + 3; x++) {
         for (int y = pos.posY - 1; y < pos.posY + 3; y++) {
+            if (!testBounds(x, y)) {
+                continue;
+            }
             map[x][y] = randomFire();
         }
     }

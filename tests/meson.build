@@ -418,3 +418,17 @@ ui_round9 = executable(
 )
 
 test('ui_round9', ui_round9, timeout: 180)
+
+round10 = executable(
+  'round10',
+  'round10.cpp',
+  include_directories: include_directories('../src'),
+  dependencies: [micropolis_dep, thread_dep],
+  cpp_args: [
+    '-DLUNDUKE_CITY_ASSET_DIR="' + lunduke_asset_dir + '"',
+    '-DLUNDUKE_CITY_PACKAGE_VERSION="' + lunduke_package_version + '"',
+    '-DLUNDUKE_CITY_TEST_HOOKS',
+  ],
+)
+
+test('round10', round10)

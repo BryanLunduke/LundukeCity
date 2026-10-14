@@ -1904,6 +1904,8 @@ public:
 
     bool loadFile(const char *filename);
 
+    int sanitizeLoadedZones();
+
     bool saveFile(const char *filename);
 
     /** errno from the last failed save, or 0 when the failure had no errno. */
