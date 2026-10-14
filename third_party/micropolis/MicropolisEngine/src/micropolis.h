@@ -2041,7 +2041,7 @@ public:
     /**
      * @todo Nobody uses this variable. Can it be removed?
      */
-    bool historyInitialized;
+    bool historyInitialized = false;
 
     /**
      * @todo Write-only variable. Can it be removed?

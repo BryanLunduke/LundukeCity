@@ -239,7 +239,15 @@ int main(int argc, char **argv)
         return fail(1, "could not make a home directory for the welcome flag");
     }
     setenv("HOME", home, 1);
-    setenv("XDG_CONFIG_HOME", "/tmp/xfce4-must-not-be-written", 1);
+    // A fresh config dir per run. A fixed /tmp path made the test fail once
+    // GTK or dconf had created it in an earlier run (round 8). The flag
+    // must follow XDG_CONFIG_HOME (C-7).
+    char config_template[] = "/tmp/lunduke-round6-config-XXXXXX";
+    char *config_home = mkdtemp(config_template);
+    if (config_home == nullptr) {
+        return fail(1, "could not make a config directory for the welcome flag");
+    }
+    setenv("XDG_CONFIG_HOME", config_home, 1);
     setenv("XDG_CONFIG_DIRS", "/etc/xdg", 1);
 
     Gtk::Main kit(argc, argv);
@@ -315,11 +323,11 @@ int main(int argc, char **argv)
     if (hostile_review_window_probe(window, 7) != 1) {
         return fail(6, "Dismiss left the welcome line on screen");
     }
-    const std::string flag = std::string(home) + "/.config/lunduke-city/welcome-dismissed";
-    if (!file_exists(flag) || file_exists("/tmp/xfce4-must-not-be-written") ||
-        flag.find("/xfce") != std::string::npos) {
+    const std::string flag = std::string(config_home) + "/lunduke-city/welcome-dismissed";
+    const std::string home_flag = std::string(home) + "/.config/lunduke-city/welcome-dismissed";
+    if (!file_exists(flag) || file_exists(home_flag) || flag.find("/xfce") != std::string::npos) {
         std::cerr << "flag '" << flag << "'\n";
-        return fail(7, "the welcome dismissal was not stored under ~/.config/lunduke-city");
+        return fail(7, "the welcome dismissal was not stored under $XDG_CONFIG_HOME/lunduke-city");
     }
     {
         AppWindow again;

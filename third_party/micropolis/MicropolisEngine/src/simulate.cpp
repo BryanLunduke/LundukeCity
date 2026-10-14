@@ -485,7 +485,11 @@ void Micropolis::simLoadInit()
     landValueAverage = miscHist[12];
     crimeAverage = miscHist[13];
     pollutionAverage = miscHist[14];
-    gameLevel = (GameLevel)miscHist[15];
+    // Range-check the raw file value before it becomes an enum.
+    {
+        const short rawLevel = miscHist[15];
+        gameLevel = (rawLevel >= LEVEL_FIRST && rawLevel <= LEVEL_LAST) ? (GameLevel)rawLevel : LEVEL_FIRST;
+    }
 
     if (cityTime < 0) {
         cityTime = 0;
@@ -504,9 +508,9 @@ void Micropolis::simLoadInit()
     setCommonInits();
 
     // Load cityClass
-    cityClass = (CityClass)(miscHist[16]);
-    if (cityClass > CC_MEGALOPOLIS || cityClass < CC_VILLAGE) {
-        cityClass = CC_VILLAGE;
+    {
+        const short rawClass = miscHist[16];
+        cityClass = (rawClass >= CC_VILLAGE && rawClass <= CC_MEGALOPOLIS) ? (CityClass)rawClass : CC_VILLAGE;
     }
 
     cityScore = miscHist[17];

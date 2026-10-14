@@ -47,6 +47,8 @@ public:
     sigc::signal<void, int> signal_zoom;
     // Space toggles pause. Arrows pan. Both only while the map has focus.
     sigc::signal<void> signal_pause_toggle;
+    // A hidden or minimized map does not blink or rescan its tiles.
+    void set_active(bool active) { active_ = active; }
     sigc::signal<void, int, int> signal_pan;
 
 protected:
@@ -95,6 +97,7 @@ private:
     std::vector<int> cached_shown_;
     std::vector<CitySession::SpriteDot> cached_sprites_;
     sigc::connection blink_timer_;
+    bool active_ = true;
     sigc::connection edge_timer_;
     Cairo::RefPtr<Cairo::ImageSurface> map_pixels_;
 };
