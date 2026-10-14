@@ -85,9 +85,11 @@ int main(int argc, char **argv)
     collect(window.get_child(), labels, side);
 
     int code = 0;
-    if (width < 800 || height < 700) {
+    // Round 11 (C-2) replaced the fixed 800x700 minimum: a small window
+    // scrolls the side panel instead, which the checks below still require.
+    if (width > 0 && (width > 660 || height > 360)) {
         std::cerr << "size request " << width << "x" << height << "\n";
-        code = fail(1, "the window can still shrink small enough to clip the tools");
+        code = fail(1, "a fixed minimum size is back; the window will not fit small screens");
     } else if (side == nullptr) {
         code = fail(2, "the side panel is not in a scrolled window");
     } else {

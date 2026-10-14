@@ -928,6 +928,9 @@ bool Micropolis::saveFile(const char *filename)
     put_mac_long(miscHist + 60, (Quad)(int)(fire_for_file * 65536));
     put_mac_long(miscHist + 62, (Quad)(int)(road_for_file * 65536));
 
+    // C-1 (round 11): a short fwrite leaves the reason in errno; keep it so
+    // a full disk is reported as ENOSPC, not EIO.
+    errno = 0;
     bool result =
         save_short(resHist, HISTORY_LENGTH / 2, f) &&
         save_short(comHist, HISTORY_LENGTH / 2, f) &&
@@ -942,6 +945,9 @@ bool Micropolis::saveFile(const char *filename)
         write_wide_city(f, this, funds_for_file);
 
     int ioerr = 0;
+    if (!result) {
+        ioerr = errno;
+    }
     if (result && fflush(f) != 0) {
         result = false;
         ioerr = errno;

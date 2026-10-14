@@ -432,3 +432,47 @@ round10 = executable(
 )
 
 test('round10', round10)
+
+# Round 11 (C-1): a short write on a full disk reports ENOSPC. Needs a full
+# filesystem: set LUNDUKE_CITY_FULL_DIR to a directory on one, else skips.
+round11 = executable(
+  'round11',
+  'round11.cpp',
+  include_directories: include_directories('../src'),
+  dependencies: [micropolis_dep, thread_dep],
+)
+
+test('round11', round11)
+
+# Round 11 (C-2): the main window's minimum size fits 1280x720 and
+# GDK_SCALE=2 on 1366x768.
+ui_round11 = executable(
+  'ui_round11',
+  'ui_round11.cpp',
+  '../src/about_dialog.cpp',
+  '../src/app_window.cpp',
+  '../src/assets.cpp',
+  '../src/budget_window.cpp',
+  '../src/city_session.cpp',
+  '../src/evaluation_window.cpp',
+  '../src/graphs_window.cpp',
+  '../src/map_view.cpp',
+  '../src/messages.cpp',
+  '../src/new_city_dialog.cpp',
+  '../src/overlay_window.cpp',
+  '../src/side_widgets.cpp',
+  '../src/sound_player.cpp',
+  '../src/sprite_art.cpp',
+  '../src/tile_atlas.cpp',
+  '../src/tool_palette.cpp',
+  '../src/tools.cpp',
+  include_directories: include_directories('../src'),
+  dependencies: [gtkmm_dep, micropolis_dep, thread_dep],
+  cpp_args: [
+    '-DLUNDUKE_CITY_ASSET_DIR="' + lunduke_asset_dir + '"',
+    '-DLUNDUKE_CITY_PACKAGE_VERSION="' + lunduke_package_version + '"',
+    '-DLUNDUKE_CITY_TEST_HOOKS',
+  ],
+)
+
+test('ui_round11', ui_round11, timeout: 180)
