@@ -53,6 +53,7 @@ private:
     void build_menus();
     void bind_session();
     void refresh();
+    void on_session_changed_minimized();
     void sync_welcome_clock();
     void sync_option_checks();
     void show_tool_hint();
@@ -204,6 +205,7 @@ private:
 #ifdef LUNDUKE_CITY_TEST_HOOKS
     friend int hostile_review_window_probe(AppWindow &window, int op);
     friend int round8_window_probe(AppWindow &window, int op);
+    friend int round9_window_probe(AppWindow &window, int op);
 #endif
 };
 
@@ -211,4 +213,6 @@ private:
 // Drives load, scenario, and announcement-pause paths without a file dialog.
 int hostile_review_window_probe(AppWindow &window, int op);
 int round8_window_probe(AppWindow &window, int op);
+// Round 9: minimized tax-year pause and dropped sounds (C-1).
+int round9_window_probe(AppWindow &window, int op);
 #endif

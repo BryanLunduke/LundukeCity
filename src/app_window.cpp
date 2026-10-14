@@ -183,6 +183,8 @@ AppWindow::AppWindow()
     session_->set_listener([this] {
         if (!iconified_) {
             refresh();
+        } else {
+            on_session_changed_minimized();
         }
     });
     // The first screen is paused. A speed chosen later is what New City
@@ -677,6 +679,27 @@ void AppWindow::refresh()
             tax_budget_modal_ = true;
         }
         Glib::signal_idle().connect_once(sigc::mem_fun(*this, &AppWindow::on_budget));
+    }
+}
+
+// C-1 (round 9): a minimized city skips refresh(), but it must still stop
+// for the tax-year budget when Auto budget is off, and it must not store up
+// sound effects to play in a burst on restore.
+void AppWindow::on_session_changed_minimized()
+{
+    // Drop, do not queue: nobody is looking at a minimized city.
+    session_->take_sounds();
+    if (session_->take_budget_request()) {
+        // Pause now so cityTime cannot run past the unpaid tax year. The
+        // budget window itself is shown on restore: refresh() takes the
+        // request kept here and presents it.
+        if (session_->budget_pending() && !tax_budget_modal_) {
+            budget_window_.set_transient_for(*this);
+            budget_window_.set_modal(true);
+            begin_modal();
+            tax_budget_modal_ = true;
+        }
+        session_->keep_budget_request();
     }
 }
 
@@ -2061,5 +2084,45 @@ int round8_window_probe(AppWindow &window, int op)
         return seen && window.get_visible() ? 1 : 0;
     }
     return 0;
+}
+
+// Round 9 (C-1): a minimized running city still stops for the tax-year
+// budget and drops sound effects instead of queueing them.
+int round9_window_probe(AppWindow &window, int op)
+{
+    if (op != 1) {
+        return 0;
+    }
+    window.session_->set_auto_budget(false);
+    window.set_speed(3);
+    window.sync_option_checks();
+    window.iconified_ = true;
+    window.map_.set_active(false);
+    // What the engine does at a tax year with Auto budget off, plus sounds.
+    hostile_review_session_probe(*window.session_, 1);
+    window.session_->sounds_.emplace_back("honk");
+    window.session_->sounds_.emplace_back("siren");
+    window.session_->budget_requested_ = true;
+    window.session_->notify();
+    int bits = 0;
+    bits |= window.session_->sounds_.empty() ? 1 : 0;
+    bits |= window.session_->simulation_paused() ? 2 : 0;
+    bits |= !window.budget_window_.get_visible() ? 4 : 0;
+    const long long before = window.session_->city_time();
+    round8_run_for(1500);
+    bits |= window.session_->city_time() == before ? 8 : 0;
+    // Restore: the budget window comes up and the city stays paused.
+    GdkEventWindowState event{};
+    event.type = GDK_WINDOW_STATE;
+    event.changed_mask = GDK_WINDOW_STATE_ICONIFIED;
+    event.new_window_state = static_cast<GdkWindowState>(0);
+    window.on_window_state_event(&event);
+    round8_run_for(300);
+    bits |= window.budget_window_.get_visible() && window.session_->simulation_paused() ? 16 : 0;
+    window.budget_window_.hide();
+    round8_run_for(100);
+    window.set_speed(0);
+    window.sync_option_checks();
+    return bits;
 }
 #endif

@@ -455,6 +455,24 @@ static void clear_wide_city(Micropolis *sim)
     sim->taxReceiptKnown = false;
 }
 
+// C-2 (round 9): the wide trailer is plain 64-bit numbers. A corrupted file
+// can put anything there, and evaluate.cpp multiplies the census, so clamp
+// to ranges far beyond any real 120x100 city but well inside 64 bits.
+static const long long kWideMaxFunds = 1000000000000LL;     // 1e12
+static const long long kWideMaxPopulation = 10000000LL;     // 1e7 per class
+static const long long kWideMaxReceipt = 1000000000000LL;   // 1e12
+
+static Quad clamp_wide(long long value, long long lo, long long hi)
+{
+    if (value < lo) {
+        return (Quad)lo;
+    }
+    if (value > hi) {
+        return (Quad)hi;
+    }
+    return (Quad)value;
+}
+
 static bool read_wide_city(Micropolis *sim, const unsigned char *bytes, std::size_t avail)
 {
     if (bytes == NULL || avail < 8) {
@@ -484,22 +502,22 @@ static bool read_wide_city(Micropolis *sim, const unsigned char *bytes, std::siz
     }
     const unsigned char *cursor = bytes + 8;
     if ((flags & kWideFlagFunds) != 0) {
-        sim->wideFundsValue = read_le_i64(cursor);
+        sim->wideFundsValue = clamp_wide(read_le_i64(cursor), -kWideMaxFunds, kWideMaxFunds);
         sim->wideFundsValid = true;
         cursor += 8;
     }
     if ((flags & kWideFlagCensus) != 0) {
-        sim->wideResPop = read_le_i64(cursor);
-        sim->wideComPop = read_le_i64(cursor + 8);
-        sim->wideIndPop = read_le_i64(cursor + 16);
+        sim->wideResPop = clamp_wide(read_le_i64(cursor), 0, kWideMaxPopulation);
+        sim->wideComPop = clamp_wide(read_le_i64(cursor + 8), 0, kWideMaxPopulation);
+        sim->wideIndPop = clamp_wide(read_le_i64(cursor + 16), 0, kWideMaxPopulation);
         sim->wideCensusValid = true;
         cursor += 24;
     }
     if ((flags & kWideFlagReceipt) != 0) {
-        sim->wideTaxFund = read_le_i64(cursor);
-        sim->wideRoadFund = read_le_i64(cursor + 8);
-        sim->widePoliceFund = read_le_i64(cursor + 16);
-        sim->wideFireFund = read_le_i64(cursor + 24);
+        sim->wideTaxFund = clamp_wide(read_le_i64(cursor), 0, kWideMaxReceipt);
+        sim->wideRoadFund = clamp_wide(read_le_i64(cursor + 8), 0, kWideMaxReceipt);
+        sim->widePoliceFund = clamp_wide(read_le_i64(cursor + 16), 0, kWideMaxReceipt);
+        sim->wideFireFund = clamp_wide(read_le_i64(cursor + 24), 0, kWideMaxReceipt);
         sim->wideReceiptValid = true;
     }
     return true;
