@@ -1,3 +1,12 @@
+lunduke-city (0.9.4-5) unstable; urgency=medium
+
+  * Fix round 11 review findings: a full disk is reported as "No space left
+    on device" (C-1); the main window has no fixed 800x700 minimum and its
+    default size fits the monitor work area, so it fits 1280x720 and
+    GDK_SCALE=2 (C-2).
+
+ -- Phil <phil@brushpad.local>  Wed, 14 Oct 2026 18:30:00 +0000
+
 lunduke-city (0.9.4-4) unstable; urgency=medium
 
   * Fix round 10 review findings.

@@ -14,6 +14,8 @@
 
 #include "micropolis.h"
 
+#include <gdkmm/display.h>
+#include <gdkmm/monitor.h>
 #include <gdkmm/pixbuf.h>
 #include <glibmm/main.h>
 #include <glibmm/miscutils.h>
@@ -143,6 +145,32 @@ std::string welcome_line(int speed)
            "System -> New City, or pick System -> Play Scenario. Point at a tool to see its name and cost.";
 }
 
+void clamp_to_workarea(int &width, int &height)
+{
+    auto display = Gdk::Display::get_default();
+    if (!display) {
+        return;
+    }
+    auto monitor = display->get_primary_monitor();
+    if (!monitor && display->get_n_monitors() > 0) {
+        monitor = display->get_monitor(0);
+    }
+    if (!monitor) {
+        return;
+    }
+    Gdk::Rectangle area;
+    monitor->get_workarea(area);
+    // Leave room for the window frame and title bar.
+    const int max_w = area.get_width() - 16;
+    const int max_h = area.get_height() - 48;
+    if (max_w > 200 && width > max_w) {
+        width = max_w;
+    }
+    if (max_h > 200 && height > max_h) {
+        height = max_h;
+    }
+}
+
 } // namespace
 
 AppWindow::~AppWindow()
@@ -155,10 +183,16 @@ AppWindow::AppWindow()
     set_title("Lunduke City");
     // Reinforce default icon for WMs that ignore gtk_window_set_default_icon_name.
     set_icon_name("lunduke-city");
-    set_default_size(1100, 740);
-    // The side stack is the tool grid, minimap, and demand meters. A shorter
-    // window scrolls that stack instead of clipping the lower tools.
-    set_size_request(800, 700);
+    // C-2 (round 11): no fixed 800x700 minimum. The side stack (tool grid,
+    // minimap, demand meters) scrolls, the map scrolls, and the message and
+    // status lines ellipsize, so the window fits 1280x720 and GDK_SCALE=2 on
+    // 1366x768. The default size is capped to the monitor's work area.
+    {
+        int width = 1100;
+        int height = 740;
+        clamp_to_workarea(width, height);
+        set_default_size(width, height);
+    }
     session_ = std::make_unique<CitySession>();
     const CitySession::MapLayer layers[] = {
         CitySession::MapLayer::Power,    CitySession::MapLayer::Water,
@@ -225,6 +259,7 @@ void AppWindow::build_ui()
     funds_label_.set_halign(Gtk::ALIGN_START);
     funds_label_.set_xalign(0);
     name_label_.set_hexpand(true);
+    name_label_.set_ellipsize(Pango::ELLIPSIZE_END);
     name_label_.set_halign(Gtk::ALIGN_CENTER);
     name_label_.set_xalign(0.5);
     date_label_.set_halign(Gtk::ALIGN_END);
@@ -262,7 +297,7 @@ void AppWindow::build_ui()
     side_scroll_.set_shadow_type(Gtk::SHADOW_NONE);
     side_scroll_.set_propagate_natural_width(true);
     side_scroll_.set_propagate_natural_height(true);
-    side_scroll_.set_min_content_height(160);
+    side_scroll_.set_min_content_height(96);
     side_scroll_.set_hexpand(false);
     side_scroll_.set_halign(Gtk::ALIGN_START);
     side_scroll_.set_vexpand(true);
@@ -281,6 +316,7 @@ void AppWindow::build_ui()
     message_label_.set_xalign(0);
     message_label_.set_hexpand(true);
     message_label_.set_margin_start(8);
+    message_label_.set_ellipsize(Pango::ELLIPSIZE_END);
     goal_label_.set_halign(Gtk::ALIGN_START);
     goal_label_.set_xalign(0);
     goal_label_.set_hexpand(true);
