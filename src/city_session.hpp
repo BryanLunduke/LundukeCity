@@ -345,6 +345,7 @@ private:
 
 #ifdef LUNDUKE_CITY_TEST_HOOKS
     friend int hostile_review_session_probe(CitySession &session, int op);
+    friend int round9_window_probe(class AppWindow &window, int op);
 #endif
 };
 
