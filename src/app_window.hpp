@@ -59,7 +59,7 @@ private:
     void clear_transient_message();
     void set_speed(int speed);
     void toggle_pause();
-    bool confirm_disaster(const char *name, const char *detail);
+    bool confirm_disaster(const char *name, const char *question, const char *detail);
     bool refresh_needed();
     bool on_window_state_event(GdkEventWindowState *event) override;
     void center_on_fraction(double fx, double fy);

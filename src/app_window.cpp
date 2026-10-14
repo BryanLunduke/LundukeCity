@@ -403,32 +403,32 @@ void AppWindow::build_menus()
     disasters->set_submenu(*disasters_menu);
     // Disasters cannot be undone, so each one asks first (C-4).
     add_item(disasters_menu, "_Fire…", 0, [this] {
-        if (confirm_disaster("Fire", "A fire will break out somewhere in the city.")) {
+        if (confirm_disaster("Fire", "Start a fire?", "A fire will break out somewhere in the city.")) {
             session_->disaster_fire();
         }
     });
     add_item(disasters_menu, "F_lood…", 0, [this] {
-        if (confirm_disaster("Flood", "Water will flood land near the shore.")) {
+        if (confirm_disaster("Flood", "Start a flood?", "Water will flood land near the shore.")) {
             session_->disaster_flood();
         }
     });
     add_item(disasters_menu, "_Tornado…", 0, [this] {
-        if (confirm_disaster("Tornado", "A tornado will tear through the city.")) {
+        if (confirm_disaster("Tornado", "Start a tornado?", "A tornado will tear through the city.")) {
             session_->disaster_tornado();
         }
     });
     add_item(disasters_menu, "_Earthquake…", 0, [this] {
-        if (confirm_disaster("Earthquake", "An earthquake will damage buildings and start fires.")) {
+        if (confirm_disaster("Earthquake", "Start an earthquake?", "An earthquake will damage buildings and start fires.")) {
             session_->disaster_earthquake();
         }
     });
     add_item(disasters_menu, "M_onster…", 0, [this] {
-        if (confirm_disaster("Monster", "A monster will walk through the city and destroy what it touches.")) {
+        if (confirm_disaster("Monster", "Release a monster?", "A monster will walk through the city and destroy what it touches.")) {
             session_->disaster_monster();
         }
     });
     add_item(disasters_menu, "_Meltdown…", 0, [this] {
-        if (confirm_disaster("Meltdown",
+        if (confirm_disaster("Meltdown", "Cause a nuclear meltdown?",
                              "A nuclear power plant will melt down and leave radiation behind.")) {
             session_->disaster_meltdown();
         }
@@ -926,10 +926,10 @@ void AppWindow::toggle_pause()
     refresh();
 }
 
-bool AppWindow::confirm_disaster(const char *name, const char *detail)
+bool AppWindow::confirm_disaster(const char *name, const char *question, const char *detail)
 {
     ModalPause pause(*this);
-    Gtk::MessageDialog dialog(*this, std::string("Start a ") + name + "?", false, Gtk::MESSAGE_WARNING,
+    Gtk::MessageDialog dialog(*this, question, false, Gtk::MESSAGE_WARNING,
                               Gtk::BUTTONS_NONE, true);
     dialog.set_title(std::string("Disaster: ") + name);
     dialog.set_secondary_text(std::string(detail) + " This cannot be undone.");
