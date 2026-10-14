@@ -1,3 +1,9 @@
+lunduke-city (0.9.4-4) unstable; urgency=medium
+
+  * Fix round 10 review findings.
+
+ -- Phil <phil@brushpad.local>  Wed, 14 Oct 2026 16:51:15 +0000
+
 lunduke-city (0.9.4-3) unstable; urgency=medium
 
   * Fix round 9 review findings.

@@ -7,7 +7,7 @@ project(
 )
 
 # Debian package version. The Meson project version is 0.9.4.
-lunduke_package_version = '0.9.4-3'
+lunduke_package_version = '0.9.4-4'
 
 gtkmm_dep = dependency('gtkmm-3.0')
 thread_dep = dependency('threads')
