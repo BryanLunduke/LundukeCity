@@ -206,8 +206,8 @@ int main()
         return fail(22, "Dullsville should start with $5,000");
     }
 
-    if (std::string(kPackageVersion) != "0.9.4-5" || std::string(kReleaseTrack) != "0.9.4") {
-        return fail(23, "package version should be the 0.9.4-5 identity");
+    if (std::string(kPackageVersion) != "0.9.4-6" || std::string(kReleaseTrack) != "0.9.4") {
+        return fail(23, "package version should be the 0.9.4-6 identity");
     }
 
     auto count_kind = [](CitySession &city, bool woods) {
@@ -325,7 +325,9 @@ int main()
     if (report.score < 0 || report.score > 1000 || report.yes_percent < 0 || report.yes_percent > 100) {
         return fail(33, "evaluation score or opinion is out of range");
     }
-    if (report.category != "Village" || report.difficulty != "Easy" || report.problems.empty()) {
+    // Round 12 (C-5): a fresh city with no residents reports no complaints.
+    if (report.category != "Village" || report.difficulty != "Easy" ||
+        (report.no_residents ? !report.problems.empty() : report.problems.empty())) {
         return fail(34, "evaluation did not report class, difficulty, and problems");
     }
     for (const auto &problem : report.problems) {

@@ -206,6 +206,7 @@ private:
     friend int hostile_review_window_probe(AppWindow &window, int op);
     friend int round8_window_probe(AppWindow &window, int op);
     friend int round9_window_probe(AppWindow &window, int op);
+    friend int round12_window_probe(AppWindow &window, int op);
 #endif
 };
 
@@ -215,4 +216,7 @@ int hostile_review_window_probe(AppWindow &window, int op);
 int round8_window_probe(AppWindow &window, int op);
 // Round 9: minimized tax-year pause and dropped sounds (C-1).
 int round9_window_probe(AppWindow &window, int op);
+// Round 12: Help menu, Save As shortcut, empty-city evaluation, load
+// reasons, full map redraw, Budget fits the work area. Returns a bit mask.
+int round12_window_probe(AppWindow &window, int op);
 #endif

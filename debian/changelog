@@ -1,3 +1,16 @@
+lunduke-city (0.9.4-6) unstable; urgency=medium
+
+  * Fix round 12 review findings: the whole map is redrawn once the tile
+    images are ready and when the map is first shown, and a paused city
+    still picks up map changes, so it no longer stays plain dirt (C-1); the
+    Budget window scrolls inside the screen work area with OK/Cancel always
+    visible at 1366x768 and 1280x720 (C-2); a failed load says why (not
+    found, folder, empty, too short, permission) (C-3); About moved to a new
+    Help menu (C-4); a new empty city shows "not rated yet" and no poll or
+    complaints (C-5); Ctrl+Shift+S opens Save As (C-6).
+
+ -- Phil <phil@brushpad.local>  Wed, 14 Oct 2026 01:43:39 +0000
+
 lunduke-city (0.9.4-5) unstable; urgency=medium
 
   * Fix round 11 review findings: a full disk is reported as "No space left

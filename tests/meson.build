@@ -476,3 +476,36 @@ ui_round11 = executable(
 )
 
 test('ui_round11', ui_round11, timeout: 180)
+
+# Round 12: Help menu, Save As shortcut, empty-city evaluation, load reasons,
+# full map redraw (dirt map), Budget fits 1280x720 and 1366x768.
+ui_round12 = executable(
+  'ui_round12',
+  'ui_round12.cpp',
+  '../src/about_dialog.cpp',
+  '../src/app_window.cpp',
+  '../src/assets.cpp',
+  '../src/budget_window.cpp',
+  '../src/city_session.cpp',
+  '../src/evaluation_window.cpp',
+  '../src/graphs_window.cpp',
+  '../src/map_view.cpp',
+  '../src/messages.cpp',
+  '../src/new_city_dialog.cpp',
+  '../src/overlay_window.cpp',
+  '../src/side_widgets.cpp',
+  '../src/sound_player.cpp',
+  '../src/sprite_art.cpp',
+  '../src/tile_atlas.cpp',
+  '../src/tool_palette.cpp',
+  '../src/tools.cpp',
+  include_directories: include_directories('../src'),
+  dependencies: [gtkmm_dep, micropolis_dep, thread_dep],
+  cpp_args: [
+    '-DLUNDUKE_CITY_ASSET_DIR="' + lunduke_asset_dir + '"',
+    '-DLUNDUKE_CITY_PACKAGE_VERSION="' + lunduke_package_version + '"',
+    '-DLUNDUKE_CITY_TEST_HOOKS',
+  ],
+)
+
+test('ui_round12', ui_round12, timeout: 180)

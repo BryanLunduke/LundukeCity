@@ -8,6 +8,7 @@
 #include <gtkmm/button.h>
 #include <gtkmm/label.h>
 #include <gtkmm/scale.h>
+#include <gtkmm/scrolledwindow.h>
 #include <gtkmm/window.h>
 
 class CitySession;
@@ -36,6 +37,15 @@ private:
     int open_fire_ = 100;
 
     Gtk::Box root_{Gtk::ORIENTATION_VERTICAL, 8};
+    // C-2 (round 12): the book scrolls inside a window capped to the
+    // screen's work area; OK/Reset stay outside the scroll, always visible.
+    Gtk::Box outer_{Gtk::ORIENTATION_VERTICAL, 8};
+    Gtk::ScrolledWindow scroll_;
+public:
+    // Largest window height that fits the monitor work area (for tests).
+    static int max_height_for_workarea(int workarea_height);
+private:
+    void fit_to_workarea();
     Gtk::Label taxes_;
     Gtk::Label cash_flow_;
     Gtk::Label funds_;

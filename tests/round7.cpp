@@ -295,14 +295,14 @@ int main()
     if (triggers.find("/usr/share/mime/packages") == std::string::npos) {
         return fail(19, "the MIME trigger is missing");
     }
-    if (deb.find("VERSION=\"0.9.4-5\"") == std::string::npos ||
+    if (deb.find("VERSION=\"0.9.4-6\"") == std::string::npos ||
         deb.find("shared-mime-info") == std::string::npos ||
         deb.find("lunduke-city.triggers") == std::string::npos) {
-        return fail(20, "the package build does not ship 0.9.4-5 with the MIME trigger");
+        return fail(20, "the package build does not ship 0.9.4-6 with the MIME trigger");
     }
-    if (changelog.find("lunduke-city (0.9.4-5)") == std::string::npos ||
+    if (changelog.find("lunduke-city (0.9.4-6)") == std::string::npos ||
         changelog.find("Phil <phil@brushpad.local>") == std::string::npos) {
-        return fail(21, "the changelog is not 0.9.4-5");
+        return fail(21, "the changelog is not 0.9.4-6");
     }
 #endif
     return 0;

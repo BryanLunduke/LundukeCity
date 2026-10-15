@@ -10,6 +10,9 @@
 #include "micropolis.h"
 
 #include <algorithm>
+#include <cerrno>
+#include <cstring>
+#include <sys/stat.h>
 #include <cstdarg>
 #include <cstdio>
 #include <ctime>
@@ -699,12 +702,59 @@ int CitySession::generated_seed() const
     return engine_->sim.generatedCitySeed;
 }
 
+std::string CitySession::load_problem(const std::string &path)
+{
+    if (path.empty()) {
+        return "The file has no local path.";
+    }
+    struct stat st;
+    if (stat(path.c_str(), &st) != 0) {
+        const int err = errno;
+        if (err == ENOENT || err == ENOTDIR) {
+            return "The file was not found. It may have been moved or deleted.";
+        }
+        if (err == EACCES) {
+            return "You do not have permission to open this file.";
+        }
+        return std::string("The file could not be opened: ") + std::strerror(err) + ".";
+    }
+    if (S_ISDIR(st.st_mode)) {
+        return "That is a folder, not a city file.";
+    }
+    if (!S_ISREG(st.st_mode)) {
+        return "That is not a regular file.";
+    }
+    FILE *f = std::fopen(path.c_str(), "rb");
+    if (f == nullptr) {
+        const int err = errno;
+        if (err == EACCES || err == EPERM) {
+            return "You do not have permission to open this file.";
+        }
+        return std::string("The file could not be opened: ") + std::strerror(err) + ".";
+    }
+    std::fclose(f);
+    // Micropolis city files are at least 27,120 bytes (history + map).
+    if (st.st_size == 0) {
+        return "The file is empty.";
+    }
+    if (st.st_size < 27120) {
+        return "The file is too short to be a city file (" + std::to_string(static_cast<long long>(st.st_size)) +
+               " bytes; a city file is at least 27,120 bytes). It may be damaged or a different kind of file.";
+    }
+    return std::string();
+}
+
 bool CitySession::load_city(const std::string &path)
 {
     message_.clear();
     Micropolis &sim = engine_->sim;
-    if (!sim.loadCity(path.c_str())) {
-        message_ = "Could not load that city file.";
+    last_load_error_.clear();
+    const std::string problem = load_problem(path);
+    if (!problem.empty() || !sim.loadCity(path.c_str())) {
+        last_load_error_ = problem.empty()
+                               ? std::string("The file could not be read as a city. It may be damaged.")
+                               : problem;
+        message_ = "Could not load that city file. " + last_load_error_;
         notify();
         return false;
     }
@@ -1638,6 +1688,11 @@ CitySession::Evaluation CitySession::evaluation() const
             problem.votes = 0;
         }
         report.problems.push_back(problem);
+    }
+    if (report.population <= 0) {
+        report.no_residents = true;
+        report.problems.clear();
+        report.yes_percent = 0;
     }
     return report;
 }
