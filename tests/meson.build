@@ -509,3 +509,17 @@ ui_round12 = executable(
 )
 
 test('ui_round12', ui_round12, timeout: 180)
+
+# Round 13 (C-1, C-2): reject damaged city files with a reason; clamp
+# window positions to the work area.
+round13 = executable(
+  'round13',
+  'round13.cpp',
+  include_directories: include_directories('../src'),
+  dependencies: [gtkmm_dep, micropolis_dep, thread_dep],
+  cpp_args: [
+    '-DLUNDUKE_CITY_ASSET_DIR="' + lunduke_asset_dir + '"',
+  ],
+)
+
+test('round13', round13)

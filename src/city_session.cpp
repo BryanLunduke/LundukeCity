@@ -751,9 +751,13 @@ bool CitySession::load_city(const std::string &path)
     last_load_error_.clear();
     const std::string problem = load_problem(path);
     if (!problem.empty() || !sim.loadCity(path.c_str())) {
-        last_load_error_ = problem.empty()
-                               ? std::string("The file could not be read as a city. It may be damaged.")
-                               : problem;
+        if (!problem.empty()) {
+            last_load_error_ = problem;
+        } else if (!sim.loadErrorDetail.empty()) {
+            last_load_error_ = "It is not a city file, or it is damaged: " + sim.loadErrorDetail;
+        } else {
+            last_load_error_ = "The file could not be read as a city. It may be damaged.";
+        }
         message_ = "Could not load that city file. " + last_load_error_;
         notify();
         return false;
