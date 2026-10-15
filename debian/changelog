@@ -1,3 +1,13 @@
+lunduke-city (0.9.4-8) unstable; urgency=medium
+
+  * Fix round 14 review findings: saving keeps the city file's existing
+    permissions, and a new file gets 0666 minus the umask (C-1); the
+    temporary save file has a unique mkstemp name, so a file named
+    "<city>.tmp" is never touched (C-2). A start-up centring timer is now
+    tied to the window's lifetime (ASan stack-use-after-scope in UI tests).
+
+ -- Phil <phil@brushpad.local>  Thu, 15 Oct 2026 04:03:25 +0000
+
 lunduke-city (0.9.4-7) unstable; urgency=medium
 
   * Fix round 13 review findings: a city file whose contents are not

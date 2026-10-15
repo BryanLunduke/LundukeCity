@@ -244,7 +244,10 @@ AppWindow::AppWindow()
     map_.grab_focus();
 
     timer_ = Glib::signal_timeout().connect(sigc::mem_fun(*this, &AppWindow::on_tick), 100);
-    Glib::signal_timeout().connect_once([this] { center_on_fraction(0.5, 0.5); }, 200);
+    // A bound member (AppWindow is sigc::trackable) is disconnected when the
+    // window is destroyed; a [this] lambda would outlive it (ASan, round 14).
+    Glib::signal_timeout().connect_once(
+        sigc::bind(sigc::mem_fun(*this, &AppWindow::center_on_fraction), 0.5, 0.5), 200);
     Glib::signal_timeout().connect_once(sigc::mem_fun(*this, &AppWindow::grab_screenshot_if_requested),
                                         600);
 }

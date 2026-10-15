@@ -933,20 +933,37 @@ bool Micropolis::saveFile(const char *filename)
         return fail(errno, nullptr);
     }
 
-    const std::string tmp = std::string(filename) + ".tmp";
-    struct stat tmpStat;
-    if (lstat(tmp.c_str(), &tmpStat) == 0) {
-        if (S_ISLNK(tmpStat.st_mode)) {
-            return fail(0, "Is a symlink");
-        }
-        if (!S_ISREG(tmpStat.st_mode)) {
-            return fail(0, "Not a regular file");
-        }
-    }
-
-    const int fd = open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0644);
+    // C-2 (round 14): a unique temp name next to the target, created with
+    // O_EXCL by mkstemp, so a user's own "<city>.tmp" is never touched.
+    const bool had_existing = (lstat(filename, &existing) == 0);
+    std::string fname(filename);
+    const std::string::size_type slash = fname.rfind('/');
+    const std::string dir = (slash == std::string::npos) ? std::string() : fname.substr(0, slash + 1);
+    const std::string base = (slash == std::string::npos) ? fname : fname.substr(slash + 1);
+    std::string tmpl = dir + "." + base + ".save-XXXXXX";
+    std::vector<char> tmpbuf(tmpl.begin(), tmpl.end());
+    tmpbuf.push_back('\0');
+    const int fd = mkostemp(tmpbuf.data(), O_CLOEXEC);
     if (fd < 0) {
         return fail(errno, nullptr);
+    }
+    const std::string tmp(tmpbuf.data());
+
+    // C-1 (round 14): keep the original file's permissions; a new file
+    // gets the usual 0666 minus the umask, like any other created file.
+    mode_t want_mode;
+    if (had_existing) {
+        want_mode = existing.st_mode & 07777;
+    } else {
+        const mode_t mask = umask(0);
+        umask(mask);
+        want_mode = 0666 & ~mask;
+    }
+    if (fchmod(fd, want_mode) != 0) {
+        const int err = errno;
+        close(fd);
+        unlink(tmp.c_str());
+        return fail(err != 0 ? err : EIO, nullptr);
     }
     FILE *f = fdopen(fd, "wb");
     if (f == NULL) {
