@@ -523,3 +523,12 @@ round13 = executable(
 )
 
 test('round13', round13)
+
+round14 = executable(
+  'round14',
+  'round14.cpp',
+  include_directories: include_directories('../src'),
+  dependencies: [micropolis_dep, thread_dep],
+)
+
+test('round14', round14)

@@ -580,24 +580,28 @@ static int test_hostile_review()
     Micropolis kept;
     kept.generateSomeCity(6);
     kept.setCleanCityName("Keep Name");
-    const std::string atomic = "/tmp/lunduke-atomic.cty";
+    const std::string atomic_dir = "/tmp/lunduke-atomic-dir";
+    mkdir(atomic_dir.c_str(), 0755);
+    chmod(atomic_dir.c_str(), 0755);
+    const std::string atomic = atomic_dir + "/atomic.cty";
     kept.saveCityAs(atomic.c_str());
     const std::vector<char> previous = read_bytes(atomic);
     if (previous.size() < 27120) {
         return fail(61, "atomic-save fixture was not a city file");
     }
-    const std::string tmp_dir = atomic + ".tmp";
-    if (mkdir(tmp_dir.c_str(), 0755) != 0) {
+    // Block the temp file by making the folder read-only (temp names are
+    // unique since round 14, so a fixed "<city>.tmp" can no longer block it).
+    if (chmod(atomic_dir.c_str(), 0555) != 0) {
         return fail(62, "could not block the save temporary file");
     }
     kept.cityFileName = "keep-me";
     const short map_guard = kept.map[1][1];
     if (kept.saveCityAs(atomic.c_str()) || kept.cityFileName != "keep-me" || kept.map[1][1] != map_guard ||
         read_bytes(atomic) != previous) {
-        rmdir(tmp_dir.c_str());
+        chmod(atomic_dir.c_str(), 0755);
         return fail(63, "a failed save replaced the previous city file or the engine path");
     }
-    rmdir(tmp_dir.c_str());
+    chmod(atomic_dir.c_str(), 0755);
     const std::string link = "/tmp/lunduke-atomic-link.cty";
     std::remove(link.c_str());
     if (symlink(atomic.c_str(), link.c_str()) != 0 || kept.saveFile(link.c_str()) || read_bytes(atomic) != previous) {
@@ -606,6 +610,7 @@ static int test_hostile_review()
     }
     std::remove(link.c_str());
     std::remove(atomic.c_str());
+    rmdir(atomic_dir.c_str());
 
     if (with_cty_suffix("Town") != "Town.cty" || with_cty_suffix("Town.CTY") != "Town.CTY" ||
         with_cty_suffix("notes.cty.bak") != "notes.cty.bak.cty" ||
