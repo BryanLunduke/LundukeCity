@@ -132,6 +132,11 @@ public:
     void new_city(const std::string &name, int seed = 0);
     void new_city(const NewCitySpec &spec);
     bool load_city(const std::string &path);
+    // C-3 (round 12): why the last load_city() failed, in plain words
+    // ("The file was not found.", "...too short...", etc.).
+    const std::string &last_load_error() const { return last_load_error_; }
+    // The reason a file cannot be loaded as a city, or "" if it looks loadable.
+    static std::string load_problem(const std::string &path);
     bool save_city_as(const std::string &path);
     bool load_scenario(int id);
     void rename_city(const std::string &name);
@@ -290,6 +295,10 @@ public:
         std::string category;
         std::string difficulty;
         std::vector<Problem> problems;
+        // C-5 (round 12): nobody lives in the city yet, so there is no
+        // poll and no complaints; the window says so instead of showing
+        // the engine's start-up defaults.
+        bool no_residents = false;
     };
     void update_evaluation();
     Evaluation evaluation() const;
@@ -320,6 +329,7 @@ private:
     void mark_dirty();
 
     std::string message_;
+    std::string last_load_error_;
     int message_serial_ = 0;
     int scenario_outcome_ = 0;
     int query_serial_ = 0;

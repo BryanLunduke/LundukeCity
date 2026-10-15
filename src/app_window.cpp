@@ -381,7 +381,13 @@ void AppWindow::build_menus()
     add_item(system_menu, "_New City", GDK_KEY_n, sigc::mem_fun(*this, &AppWindow::on_new_city));
     add_item(system_menu, "_Load City...", GDK_KEY_o, sigc::mem_fun(*this, &AppWindow::on_load_city));
     add_item(system_menu, "Save _City", GDK_KEY_s, sigc::mem_fun(*this, &AppWindow::on_save_city));
-    add_item(system_menu, "Save City _As...", 0, sigc::mem_fun(*this, &AppWindow::on_save_city_as));
+    {
+        // C-6 (round 12): Ctrl+Shift+S for Save As.
+        auto *save_as = add_item(system_menu, "Save City _As...", 0,
+                                 sigc::mem_fun(*this, &AppWindow::on_save_city_as));
+        save_as->add_accelerator("activate", accel_, GDK_KEY_s, Gdk::CONTROL_MASK | Gdk::SHIFT_MASK,
+                                 Gtk::ACCEL_VISIBLE);
+    }
     add_item(system_menu, "Play _Scenario…", 0, sigc::mem_fun(*this, &AppWindow::on_play_scenario));
     add_item(system_menu, "_Rename City…", 0, sigc::mem_fun(*this, &AppWindow::on_rename_city));
     system_menu->append(*Gtk::manage(new Gtk::SeparatorMenuItem()));
@@ -486,9 +492,14 @@ void AppWindow::build_menus()
     add_item(windows_menu, "_Crime", 0, [this] { on_overlay(CitySession::MapLayer::Crime); });
     add_item(windows_menu, "_Land value", 0, [this] { on_overlay(CitySession::MapLayer::LandValue); });
     add_item(windows_menu, "_Traffic", 0, [this] { on_overlay(CitySession::MapLayer::Traffic); });
-    windows_menu->append(*Gtk::manage(new Gtk::SeparatorMenuItem()));
-    add_item(windows_menu, "_About Lunduke City", 0, sigc::mem_fun(*this, &AppWindow::on_about));
     menu_bar_.append(*windows);
+
+    // C-4 (round 12): About lives in its own Help menu.
+    auto *help_menu = Gtk::manage(new Gtk::Menu());
+    auto *help = Gtk::manage(new Gtk::MenuItem("_Help", true));
+    help->set_submenu(*help_menu);
+    add_item(help_menu, "_About Lunduke City", 0, sigc::mem_fun(*this, &AppWindow::on_about));
+    menu_bar_.append(*help);
 }
 
 void AppWindow::bind_session()
@@ -918,6 +929,10 @@ bool AppWindow::on_tick()
     session_->tick();
     if (refresh_needed()) {
         refresh();
+    } else if (!iconified_ && get_visible()) {
+        // C-1 (round 12): a paused city skips the full refresh, but the map
+        // diff is cheap and only redraws tiles that changed.
+        map_.sync();
     }
     return true;
 }
@@ -1189,10 +1204,20 @@ AppWindow::CityFileOpen AppWindow::finish_open_city(const std::string &path)
         Gtk::MessageDialog error(*this, "Could not load that city file.", false, Gtk::MESSAGE_ERROR,
                                  Gtk::BUTTONS_OK, true);
         error.set_title("Could not load city");
+        // C-3 (round 12): say why, then which file.
         if (path.empty()) {
             error.set_secondary_text("That file has no local path.");
         } else {
-            error.set_secondary_text(path);
+            std::string reason = session_->last_load_error();
+            if (reason.empty()) {
+                reason = CitySession::load_problem(path);
+            }
+            if (reason.empty()) {
+                reason = "The file could not be read as a city. It may be damaged.";
+            }
+            gchar *shown = g_filename_display_name(path.c_str());
+            error.set_secondary_text(reason + "\n\n" + std::string(shown != nullptr ? shown : ""));
+            g_free(shown);
         }
         error.run();
         return CityFileOpen::Failed;
@@ -2159,6 +2184,94 @@ int round9_window_probe(AppWindow &window, int op)
     round8_run_for(100);
     window.set_speed(0);
     window.sync_option_checks();
+    return bits;
+}
+
+namespace {
+std::string r12_label(Gtk::MenuItem *item)
+{
+    std::string label = item->get_label();
+    label.erase(std::remove(label.begin(), label.end(), '_'), label.end());
+    return label;
+}
+Gtk::Menu *r12_submenu(Gtk::MenuBar &bar, const std::string &name)
+{
+    for (Gtk::Widget *child : bar.get_children()) {
+        auto *item = dynamic_cast<Gtk::MenuItem *>(child);
+        if (item != nullptr && r12_label(item) == name) {
+            return item->get_submenu();
+        }
+    }
+    return nullptr;
+}
+bool r12_has(Gtk::Menu *menu, const std::string &name)
+{
+    if (menu == nullptr) {
+        return false;
+    }
+    for (Gtk::Widget *child : menu->get_children()) {
+        auto *item = dynamic_cast<Gtk::MenuItem *>(child);
+        if (item != nullptr && r12_label(item) == name) {
+            return true;
+        }
+    }
+    return false;
+}
+} // namespace
+
+int round12_window_probe(AppWindow &window, int op)
+{
+    if (op != 1) {
+        return 0;
+    }
+    int bits = 0;
+    // C-4
+    Gtk::Menu *help = r12_submenu(window.menu_bar_, "Help");
+    Gtk::Menu *windows = r12_submenu(window.menu_bar_, "Windows");
+    if (r12_has(help, "About Lunduke City") && windows != nullptr && !r12_has(windows, "About Lunduke City")) {
+        bits |= 1;
+    }
+    // C-6
+    guint n = 0;
+    GtkAccelGroupEntry *entries = gtk_accel_group_query(
+        window.accel_->gobj(), GDK_KEY_s, static_cast<GdkModifierType>(GDK_CONTROL_MASK | GDK_SHIFT_MASK), &n);
+    guint plain = 0;
+    gtk_accel_group_query(window.accel_->gobj(), GDK_KEY_s, GDK_CONTROL_MASK, &plain);
+    if (entries != nullptr && n == 1 && plain == 1) {
+        bits |= 2;
+    }
+    // C-5
+    window.session_->new_city("Empty Town", 1234);
+    const CitySession::Evaluation report = window.session_->evaluation();
+    if (report.no_residents && report.problems.empty() && report.population == 0) {
+        bits |= 4;
+    }
+    // C-1
+    window.map_.sync();
+    window.map_.invalidate_all();
+    window.map_.sync();
+    const int all = window.map_.last_sync_blits();
+    window.map_.sync();
+    const int none = window.map_.last_sync_blits();
+    if (all == CitySession::kWorldW * CitySession::kWorldH && none == 0) {
+        bits |= 8;
+    }
+    // C-2
+    window.on_budget();
+    round8_run_for(400);
+    Gdk::Rectangle area;
+    auto display = Gdk::Display::get_default();
+    auto monitor = display->get_primary_monitor() ? display->get_primary_monitor() : display->get_monitor(0);
+    monitor->get_workarea(area);
+    const int max_h = BudgetWindow::max_height_for_workarea(area.get_height());
+    std::printf("budget %dx%d workarea %dx%d max_h %d\n", window.budget_window_.get_width(),
+                window.budget_window_.get_height(), area.get_width(), area.get_height(), max_h);
+    if (window.budget_window_.get_visible() && window.budget_window_.get_height() <= max_h &&
+        window.budget_window_.get_width() <= area.get_width()) {
+        bits |= 16;
+    }
+    window.budget_window_.hide();
+    round8_run_for(100);
     return bits;
 }
 #endif

@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <string>
 
+#include <gdkmm/display.h>
+#include <gdkmm/monitor.h>
 #include <gtkmm/grid.h>
 #include <gtkmm/separator.h>
 
@@ -145,10 +147,16 @@ BudgetWindow::BudgetWindow()
     });
     buttons->pack_start(dismiss_, Gtk::PACK_SHRINK);
     buttons->pack_start(accept_, Gtk::PACK_SHRINK);
-    root_.pack_start(*buttons, Gtk::PACK_SHRINK);
     apply_mode();
 
-    add(root_);
+    scroll_.set_policy(Gtk::POLICY_NEVER, Gtk::POLICY_AUTOMATIC);
+    scroll_.set_propagate_natural_height(true);
+    scroll_.set_propagate_natural_width(true);
+    scroll_.set_shadow_type(Gtk::SHADOW_NONE);
+    scroll_.add(root_);
+    outer_.pack_start(scroll_, Gtk::PACK_EXPAND_WIDGET);
+    outer_.pack_start(*buttons, Gtk::PACK_SHRINK);
+    add(outer_);
 
     // A scale can report a fraction that rounds to the percent already
     // showing, including 0. That is not a new request. Snapping the
@@ -203,9 +211,55 @@ void BudgetWindow::present_book()
     }
     accept_on_hide_ = true;
     apply_mode();
+    fit_to_workarea();
     show_all();
     present();
     sync();
+}
+
+int BudgetWindow::max_height_for_workarea(int workarea_height)
+{
+    // Title bar and frame (~48 px) stay on screen too.
+    return std::max(240, workarea_height - 48);
+}
+
+void BudgetWindow::fit_to_workarea()
+{
+    auto display = Gdk::Display::get_default();
+    if (!display) {
+        return;
+    }
+    Glib::RefPtr<Gdk::Monitor> monitor;
+    if (auto parent = get_transient_for()) {
+        if (auto gw = parent->get_window()) {
+            monitor = display->get_monitor_at_window(gw);
+        }
+    }
+    if (!monitor) {
+        monitor = display->get_primary_monitor();
+    }
+    if (!monitor && display->get_n_monitors() > 0) {
+        monitor = display->get_monitor(0);
+    }
+    if (!monitor) {
+        return;
+    }
+    Gdk::Rectangle area;
+    monitor->get_workarea(area);
+    const int max_h = max_height_for_workarea(area.get_height());
+    // Room for the border and the button row below the scrolled book.
+    const int chrome = 2 * static_cast<int>(get_border_width()) + 56;
+    scroll_.set_max_content_height(std::max(120, max_h - chrome));
+    const int max_w = std::max(320, area.get_width() - 16);
+    int w = 0;
+    int h = 0;
+    get_default_size(w, h);
+    if (w > max_w || h > max_h) {
+        set_default_size(std::min(w, max_w), std::min(h, max_h));
+    }
+    if (get_realized() && (get_height() > max_h || get_width() > max_w)) {
+        resize(std::min(get_width(), max_w), std::min(get_height(), max_h));
+    }
 }
 
 void BudgetWindow::restore_open_rates()

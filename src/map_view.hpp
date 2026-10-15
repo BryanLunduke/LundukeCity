@@ -28,6 +28,12 @@ public:
     // Copy changed tiles into the retained buffer and invalidate those
     // rectangles. Hover outlines do not call this.
     void sync();
+    // C-1 (round 12): forget what was blitted so the next sync() redraws
+    // every tile (used when the tile images become available and when the
+    // view is first mapped).
+    void invalidate_all();
+    // Tiles re-blitted by the last sync(); for tests.
+    int last_sync_blits() const { return last_sync_blits_; }
 
     // Tile under the pointer, used to outline a placeable tool's footprint.
     // Cleared when the pointer leaves the map.
@@ -53,6 +59,7 @@ public:
 
 protected:
     void on_realize() override;
+    void on_map() override;
     bool on_draw(const Cairo::RefPtr<Cairo::Context> &cr) override;
     bool on_button_press_event(GdkEventButton *event) override;
     bool on_button_release_event(GdkEventButton *event) override;
@@ -93,6 +100,8 @@ private:
     int hover_x_ = 0;
     int hover_y_ = 0;
     bool blink_on_ = false;
+    bool atlas_was_loaded_ = false;
+    int last_sync_blits_ = 0;
     std::vector<int> cached_raw_;
     std::vector<int> cached_shown_;
     std::vector<CitySession::SpriteDot> cached_sprites_;

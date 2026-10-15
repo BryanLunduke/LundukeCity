@@ -154,6 +154,27 @@ void EvaluationWindow::sync()
         score_delta_.set_text("Change since the last evaluation: none");
     }
 
+    if (report.no_residents) {
+        // C-5 (round 12): an empty city has no poll and no complaints.
+        score_.set_text("Score: not rated yet");
+        score_delta_.set_text("The city is evaluated once people move in.");
+        yes_.set_text("Yes: —");
+        no_.set_text("No: —");
+        opinion_.set_fraction(0.0);
+        opinion_.set_text("No poll yet");
+        problems_empty_.set_visible(true);
+        problems_empty_.set_text("No complaints yet — nobody lives here.");
+        for (int i = 0; i < 4; ++i) {
+            problem_[i].set_text("");
+            problem_[i].set_visible(false);
+        }
+        population_.set_text("Population: 0");
+        migration_.set_text("Net migration (last year): 0");
+        assessed_.set_text("Assessed value: " + money(report.assessed_value));
+        category_.set_text("Category: " + report.category);
+        difficulty_.set_text("Difficulty: " + report.difficulty);
+        return;
+    }
     const int no_percent = 100 - report.yes_percent;
     yes_.set_text("Yes: " + std::to_string(report.yes_percent) + "%");
     no_.set_text("No: " + std::to_string(no_percent) + "%");

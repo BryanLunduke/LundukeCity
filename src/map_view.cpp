@@ -57,6 +57,24 @@ void MapView::on_realize()
     }
 }
 
+void MapView::on_map()
+{
+    Gtk::DrawingArea::on_map();
+    // C-1 (round 12): a refresh before the widget was realized or mapped
+    // may have blitted with no tile images; redraw the whole map now.
+    invalidate_all();
+    sync();
+}
+
+void MapView::invalidate_all()
+{
+    if (!cached_raw_.empty()) {
+        std::fill(cached_raw_.begin(), cached_raw_.end(), -1);
+        std::fill(cached_shown_.begin(), cached_shown_.end(), -1);
+    }
+    queue_draw();
+}
+
 void MapView::set_session(CitySession *session)
 {
     session_ = session;
@@ -180,6 +198,8 @@ void MapView::blit_tile(int x, int y, int shown, const TileAtlas &atlas)
         atlas.blit(shown, dest, stride);
         return;
     }
+    // Placeholder until the tile images load; sync() re-blits every tile
+    // when they do (C-1, round 12).
     const std::uint32_t dirt = (255u << 24) | (204u << 16) | (127u << 8) | 102u;
     for (int row = 0; row < TileAtlas::kSize; ++row) {
         auto *px = reinterpret_cast<std::uint32_t *>(dest + row * stride);
@@ -225,6 +245,14 @@ void MapView::sync()
 {
     ensure_surface();
     TileAtlas &atlas = tile_atlas();
+    // C-1 (round 12): tiles blitted as the dirt placeholder before the
+    // atlas loaded keep their raw value, so the per-tile diff below would
+    // never redraw them. Redraw everything once the atlas becomes ready.
+    if (atlas.loaded() != atlas_was_loaded_) {
+        atlas_was_loaded_ = atlas.loaded();
+        std::fill(cached_raw_.begin(), cached_raw_.end(), -1);
+        std::fill(cached_shown_.begin(), cached_shown_.end(), -1);
+    }
     constexpr int kSpotCap = 48;
     int spots[kSpotCap][2];
     int spot_count = 0;
@@ -255,6 +283,7 @@ void MapView::sync()
             }
         }
     }
+    last_sync_blits_ = dirty;
     if (dirty > 0) {
         map_pixels_->mark_dirty();
         if (overflow || !get_realized()) {
