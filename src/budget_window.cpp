@@ -3,6 +3,7 @@
 // See COPYING and NOTICE.
 
 #include "budget_window.hpp"
+#include "window_fit.hpp"
 
 #include "city_session.hpp"
 
@@ -52,6 +53,7 @@ BudgetWindow::BudgetWindow()
     set_title("Budget");
     set_border_width(12);
     set_default_size(560, 420);
+    window_fit::keep_on_screen_after_map(*this);
 
     closing_note_.set_halign(Gtk::ALIGN_START);
     closing_note_.set_xalign(0);
@@ -214,6 +216,7 @@ void BudgetWindow::present_book()
     fit_to_workarea();
     show_all();
     present();
+    window_fit::keep_on_screen(*this);
     sync();
 }
 

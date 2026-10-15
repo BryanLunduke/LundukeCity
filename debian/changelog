@@ -1,3 +1,13 @@
+lunduke-city (0.9.4-7) unstable; urgency=medium
+
+  * Fix round 13 review findings: a city file whose contents are not
+    plausible (unknown tile values, more building centres than fit,
+    funds or date out of range) is refused with the reason and the open
+    city is left untouched (C-1); the main and Budget windows are moved
+    back inside the screen work area so they fit 768-pixel screens (C-2).
+
+ -- Phil <phil@brushpad.local>  Thu, 15 Oct 2026 03:08:02 +0000
+
 lunduke-city (0.9.4-6) unstable; urgency=medium
 
   * Fix round 12 review findings: the whole map is redrawn once the tile

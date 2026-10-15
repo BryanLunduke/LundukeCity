@@ -127,10 +127,27 @@ int main()
     put_be16(data, misc + 30, 0x7fff);     // miscHist[15] game level
     put_be16(data, misc + 32, 0x7fff);     // miscHist[16] city class
     write_all(corrupt, data);
+    // Round 13 (C-1) supersedes the C-6 clamp: a date far past year 9999 is
+    // garbage, so the file is refused with a reason and the city untouched.
+    {
+        Micropolis sim;
+        if (sim.loadFile(corrupt.c_str()) || sim.loadErrorDetail.find("date") == std::string::npos) {
+            return fail(13, "the impossible-date fixture loaded or gave no reason (r13 C-1)");
+        }
+        CitySession session;
+        if (session.load_city(corrupt) || session.last_load_error().find("date") == std::string::npos) {
+            std::cerr << "error " << session.last_load_error() << "\n";
+            return fail(17, "the session accepted the impossible-date fixture (r13 C-1)");
+        }
+    }
+    // C-5: with a plausible date, an out-of-range level and class are clamped.
+    put_be16(data, time_at, 0x0000);
+    put_be16(data, time_at + 2, 0x0100);
+    write_all(corrupt, data);
     {
         Micropolis sim;
         if (!sim.loadFile(corrupt.c_str())) {
-            return fail(13, "the corrupt fixture did not load");
+            return fail(13, "the corrupt level/class fixture did not load");
         }
         const long long max_time = static_cast<long long>(9999 - 1900) * 48;
         if (sim.cityTime < 0 || sim.cityTime > max_time) {
@@ -142,19 +159,6 @@ int main()
         }
         if (sim.cityClass < CC_VILLAGE || sim.cityClass > CC_MEGALOPOLIS) {
             return fail(16, "an out-of-range city class was kept (C-5)");
-        }
-    }
-    {
-        CitySession session;
-        if (!session.load_city(corrupt)) {
-            return fail(17, "the session refused the corrupt fixture");
-        }
-        const std::string date = session.date_text();
-        const auto space = date.find_last_of(' ');
-        const std::string year = space == std::string::npos ? date : date.substr(space + 1);
-        if (year.size() > 4) {
-            std::cerr << "date " << date << "\n";
-            return fail(18, "the loaded year has more than four digits (C-6)");
         }
     }
 

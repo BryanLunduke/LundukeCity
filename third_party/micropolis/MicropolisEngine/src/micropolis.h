@@ -1914,6 +1914,15 @@ public:
     /** Short reason for the last failed save, for the error dialog. */
     std::string saveErrorDetail;
 
+    /** Reason the last load rejected the file's contents, or empty. */
+    std::string loadErrorDetail;
+
+    static std::string checkCityContents(const short *misc, const short *tiles, int tileCount,
+                                         bool checkMisc, bool hasWideFunds, bool classicOnly);
+
+    /** True while loadFile() reads a saved city (scenarios set their own funds and date). */
+    bool loadingSavedCity = false;
+
     bool loadScenario(Scenario s);
 
     void didLoadScenario();

@@ -572,6 +572,7 @@ bool Micropolis::loadFileDir(const char *filename, const char *dir)
     std::vector<unsigned char> data;
     const bool got = read_entire_file(f, data);
     fclose(f);
+    loadErrorDetail.clear();
     if (!got || data.size() < 27120) {
         return false;
     }
@@ -598,6 +599,21 @@ bool Micropolis::loadFileDir(const char *filename, const char *dir)
         take_shorts(data, off, misc.data(), miscCount) &&
         take_shorts(data, off, tiles.data(), mapCount);
     if (!parsed) {
+        return false;
+    }
+    // City files have no magic number, so check that the contents are
+    // plausible before anything touches the live city.
+    bool hasWideFunds = false;
+    for (std::size_t i = 27120; i + 8 <= data.size(); i++) {
+        if (std::memcmp(data.data() + i, kWideCityMagic, 4) == 0 && data[i + 4] == 1 &&
+            data[i + 5] == 0 && (data[i + 6] & kWideFlagFunds) != 0) {
+            hasWideFunds = true;
+            break;
+        }
+    }
+    loadErrorDetail = checkCityContents(misc.data(), tiles.data(), mapCount, loadingSavedCity,
+                                        hasWideFunds, data.size() == 27120);
+    if (!loadErrorDetail.empty()) {
         return false;
     }
 
@@ -639,6 +655,59 @@ bool Micropolis::loadFileDir(const char *filename, const char *dir)
     }
 
     return true;
+}
+
+/**
+ * Sanity-check the classic fields of a city file before loading it.
+ * @param misc  miscHist as read from the file (host byte order).
+ * @param tiles Map tiles as read from the file (host byte order).
+ * @return Empty when plausible, otherwise a short reason for the user.
+ */
+std::string Micropolis::checkCityContents(const short *misc, const short *tiles, int tileCount,
+                                          bool checkMisc, bool hasWideFunds, bool classicOnly)
+{
+    // Scenario files carry no meaningful funds or date; loadScenario() sets them.
+    if (checkMisc) {
+        // Debt is allowed. The saver only writes a saturated classic field
+        // (below -1e9) together with the wide-funds trailer.
+        const Quad funds = get_mac_long(misc + 50);
+        if (!hasWideFunds && funds < -1000000000L) {
+            return "The city's funds are out of range ($" + std::to_string((long long)funds) + ").";
+        }
+        const Quad time = get_mac_long(misc + 8);
+        const Quad kMaxTime = (Quad)(9999 - 1900) * 48;
+        // The original Micropolis scenario files (exactly 27,120 bytes, no
+        // trailers) store junk far past 9999 here; loadFile() clamps those as
+        // before. Files written by Lunduke City always carry trailers, so
+        // for them a date past 9999 means the file is damaged.
+        if (time < 0 || (time > kMaxTime && !classicOnly)) {
+            return "The city's date is out of range (after the year 9999 or before 1900).";
+        }
+    }
+    int unknown = 0;
+    int centres = 0;
+    int badCentres = 0;
+    for (int i = 0; i < tileCount; i++) {
+        const unsigned short v = (unsigned short)tiles[i];
+        const unsigned int t = v & LOMASK;
+        if (t > CHURCH7LAST) {
+            unknown++;
+        }
+        if (v & ZONEBIT) {
+            centres++;
+            if (t > CHURCH7LAST) {
+                badCentres++;
+            }
+        }
+    }
+    if (unknown > 0) {
+        return "The map has " + std::to_string(unknown) + " unknown tile value" + (unknown == 1 ? "" : "s") + ".";
+    }
+    // Every building is at least 3x3, so a real map has at most 1/9 centres.
+    if (centres > tileCount / 9 || badCentres > 0) {
+        return "The map has " + std::to_string(centres) + " building centres, more than can fit.";
+    }
+    return std::string();
 }
 
 /**
@@ -686,7 +755,10 @@ bool Micropolis::loadFile(const char *filename)
 {
     long n;
 
-    if (!loadFileDir(filename, NULL)) {
+    loadingSavedCity = true;
+    const bool read = loadFileDir(filename, NULL);
+    loadingSavedCity = false;
+    if (!read) {
         return false;
     }
 

@@ -2,6 +2,7 @@
 // Copyright (C) 2026 The Lunduke City authors
 // See COPYING and NOTICE.
 
+#include "window_fit.hpp"
 #include "app_window.hpp"
 
 #include "about_dialog.hpp"
@@ -193,6 +194,7 @@ AppWindow::AppWindow()
         clamp_to_workarea(width, height);
         set_default_size(width, height);
     }
+    window_fit::keep_on_screen_after_map(*this);
     session_ = std::make_unique<CitySession>();
     const CitySession::MapLayer layers[] = {
         CitySession::MapLayer::Power,    CitySession::MapLayer::Water,
