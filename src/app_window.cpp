@@ -6,6 +6,7 @@
 #include "app_window.hpp"
 
 #include "about_dialog.hpp"
+#include "city_recovery.hpp"
 #include "city_session.hpp"
 #include "new_city_dialog.hpp"
 #include "notice_bar.hpp"
@@ -19,7 +20,9 @@
 #include <gdkmm/monitor.h>
 #include <gdkmm/pixbuf.h>
 #include <glibmm/main.h>
+#include <glibmm/convert.h>
 #include <glibmm/miscutils.h>
+#include <glib-unix.h>
 #include <gtk/gtk.h>
 #include <gtkmm/cellrenderertext.h>
 #include <gtkmm/dialog.h>
@@ -29,12 +32,15 @@
 #include <gtkmm/filefilter.h>
 #include <gtkmm/liststore.h>
 #include <gtkmm/messagedialog.h>
+#include <gtkmm/recentfilter.h>
+#include <gtkmm/recentmanager.h>
 #include <gtkmm/separatormenuitem.h>
 #include <gtkmm/spinbutton.h>
 #include <gtkmm/treeview.h>
 
 #include <algorithm>
 #include <cstdio>
+#include <csignal>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -177,6 +183,13 @@ void clamp_to_workarea(int &width, int &height)
 AppWindow::~AppWindow()
 {
     timer_.disconnect();
+    autosave_timer_.disconnect();
+    if (sigterm_source_ != 0) {
+        g_source_remove(sigterm_source_);
+    }
+    if (sighup_source_ != 0) {
+        g_source_remove(sighup_source_);
+    }
 }
 
 AppWindow::AppWindow()
@@ -250,6 +263,223 @@ AppWindow::AppWindow()
         sigc::bind(sigc::mem_fun(*this, &AppWindow::center_on_fraction), 0.5, 0.5), 200);
     Glib::signal_timeout().connect_once(sigc::mem_fun(*this, &AppWindow::grab_screenshot_if_requested),
                                         600);
+
+    // C-1 (round 15): autosave unsaved work once a minute to this run's own
+    // recovery file, and on SIGTERM/SIGHUP (logout, shutdown, kill) write
+    // it before leaving. The next start offers it back.
+    unsigned autosave_ms = 60 * 1000;
+#ifdef LUNDUKE_CITY_TEST_HOOKS
+    if (const char *ms = std::getenv("LUNDUKE_CITY_AUTOSAVE_MS"); ms != nullptr && ms[0] != '\0') {
+        const long v = std::strtol(ms, nullptr, 10);
+        if (v > 0) {
+            autosave_ms = static_cast<unsigned>(v);
+        }
+    }
+#endif
+    autosave_timer_ =
+        Glib::signal_timeout().connect(sigc::mem_fun(*this, &AppWindow::on_autosave_timer), autosave_ms);
+    sigterm_source_ = g_unix_signal_add(SIGTERM, &AppWindow::on_terminate_signal, this);
+    sighup_source_ = g_unix_signal_add(SIGHUP, &AppWindow::on_terminate_signal, this);
+    Glib::signal_timeout().connect_once(sigc::mem_fun(*this, &AppWindow::offer_recovery), 450);
+}
+
+bool AppWindow::on_autosave_timer()
+{
+    autosave_now(false);
+    return true;
+}
+
+bool AppWindow::autosave_now(bool force)
+{
+    if (!session_ || !session_->needs_save_prompt()) {
+        return false;
+    }
+    const std::string fingerprint = session_->change_fingerprint();
+    if (!force && fingerprint == autosave_fingerprint_ && !own_recovery_.empty()) {
+        return true;
+    }
+    if (own_recovery_.empty()) {
+        own_recovery_ = city_recovery::new_recovery_path();
+        if (own_recovery_.empty()) {
+            return false;
+        }
+    }
+    if (!session_->write_recovery(own_recovery_)) {
+        return false;
+    }
+    city_recovery::write_info(own_recovery_, session_->city_name(), session_->save_path(),
+                              session_->date_text());
+    autosave_fingerprint_ = fingerprint;
+    return true;
+}
+
+void AppWindow::drop_own_recovery()
+{
+    city_recovery::remove(own_recovery_);
+    own_recovery_.clear();
+    autosave_fingerprint_.clear();
+}
+
+gboolean AppWindow::on_terminate_signal(gpointer self)
+{
+    auto *window = static_cast<AppWindow *>(self);
+    if (window->terminating_) {
+        return G_SOURCE_CONTINUE;
+    }
+    window->terminating_ = true;
+    // Keep the city first, then leave without the unsaved-city question:
+    // the session is ending and nobody is there to answer it.
+    window->autosave_now(true);
+    if (g_main_depth() > 1) {
+        // A dialog's nested loop is running (an open question, a file
+        // chooser). The recovery file is already written and synced, and
+        // that dialog would keep the process alive past the logout.
+        std::fflush(nullptr);
+        _exit(0);
+    }
+    window->close_budget_window();
+    window->hide();
+    return G_SOURCE_CONTINUE;
+}
+
+void AppWindow::offer_recovery()
+{
+    if (!session_ || terminating_) {
+        return;
+    }
+    for (;;) {
+        const std::vector<city_recovery::Entry> entries = city_recovery::list(own_recovery_);
+        if (entries.empty()) {
+            return;
+        }
+        const city_recovery::Entry &e = entries.front();
+        ModalPause pause(*this);
+        std::string secondary = "Lunduke City found a city from a previous session that was not saved:\n\u2022 " +
+                                city_recovery::describe(e) + "\n";
+        if (entries.size() > 1) {
+            secondary += "(" + std::to_string(entries.size() - 1) +
+                         (entries.size() == 2 ? " older one is" : " older ones are") + " kept for later.)\n";
+        }
+        secondary += "\n\u201cNot Now\u201d keeps it for the next time City starts.";
+        Gtk::MessageDialog dialog(*this, "Recover unsaved city?", false, Gtk::MESSAGE_QUESTION,
+                                  Gtk::BUTTONS_NONE, true);
+        dialog.set_secondary_text(secondary);
+        dialog.add_button("_Discard\u2026", Gtk::RESPONSE_NO);
+        dialog.add_button("_Not Now", Gtk::RESPONSE_CANCEL);
+        dialog.add_button("_Recover", Gtk::RESPONSE_YES);
+        dialog.set_default_response(Gtk::RESPONSE_YES);
+#ifdef LUNDUKE_CITY_TEST_HOOKS
+        if (std::getenv("LUNDUKE_CITY_SHOT_RECOVERY") != nullptr ||
+            std::getenv("LUNDUKE_CITY_RECOVERY_ANSWER") != nullptr) {
+            Glib::signal_timeout().connect_once(
+                [this, &dialog] {
+                    if (const char *shot = std::getenv("LUNDUKE_CITY_SHOT_RECOVERY"); shot != nullptr && shot[0] != '\0') {
+                        save_widget_png(dialog, shot);
+                    }
+                    if (const char *answer = std::getenv("LUNDUKE_CITY_RECOVERY_ANSWER"); answer != nullptr) {
+                        const std::string a = answer;
+                        dialog.response(a == "recover"   ? Gtk::RESPONSE_YES
+                                        : a == "discard" ? Gtk::RESPONSE_NO
+                                                         : Gtk::RESPONSE_CANCEL);
+                    }
+                },
+                400);
+        }
+#endif
+        const int response = dialog.run();
+        dialog.hide();
+        if (response == Gtk::RESPONSE_YES) {
+            if (!confirm_unsaved()) {
+                continue;
+            }
+            close_budget_window();
+            if (!session_->load_recovery(e.path, e.origin)) {
+                Gtk::MessageDialog error(*this, "Could not recover that city.", false, Gtk::MESSAGE_ERROR,
+                                         Gtk::BUTTONS_OK, true);
+                std::string reason = session_->last_load_error();
+                if (reason.empty()) {
+                    reason = "The recovery file could not be read.";
+                }
+                error.set_secondary_text(reason + "\n\nIt is kept; choose Discard next time to remove it.");
+                error.run();
+                refresh();
+                return;
+            }
+            // This run now owns that file: it stays until the city is saved
+            // (or discarded), and the next autosave replaces it in place.
+            own_recovery_ = e.path;
+            autosave_fingerprint_ = session_->change_fingerprint();
+            speed_ = 0;
+            session_->set_speed(0);
+            sync_option_checks();
+            refresh();
+            center_on_fraction(0.5, 0.5);
+            return;
+        }
+        if (response == Gtk::RESPONSE_NO) {
+            Gtk::MessageDialog confirm(*this, "Delete this unsaved city?", false, Gtk::MESSAGE_WARNING,
+                                       Gtk::BUTTONS_NONE, true);
+            confirm.set_secondary_text(city_recovery::describe(e) + "\n\nThis cannot be undone.");
+            confirm.add_button("_Cancel", Gtk::RESPONSE_CANCEL);
+            confirm.add_button("_Delete", Gtk::RESPONSE_ACCEPT);
+            confirm.set_default_response(Gtk::RESPONSE_CANCEL);
+#ifdef LUNDUKE_CITY_TEST_HOOKS
+            if (const char *c = std::getenv("LUNDUKE_CITY_RECOVERY_CONFIRM"); c != nullptr && c[0] != '\0') {
+                const std::string choice = c;
+                Glib::signal_timeout().connect_once(
+                    [&confirm, choice] {
+                        confirm.response(choice == "delete" ? Gtk::RESPONSE_ACCEPT : Gtk::RESPONSE_CANCEL);
+                    },
+                    300);
+            }
+#endif
+            if (confirm.run() == Gtk::RESPONSE_ACCEPT) {
+                city_recovery::remove(e.path);
+            }
+            // Cancel goes back to the recovery question; Delete shows the
+            // next older one, if any.
+            continue;
+        }
+        // Not Now, Escape, or the title-bar close: keep everything.
+        return;
+    }
+}
+
+void AppWindow::remember_recent_city(const std::string &path)
+{
+    if (path.empty() || path[0] != '/') {
+        return;
+    }
+    try {
+        auto manager = Gtk::RecentManager::get_default();
+        if (!manager) {
+            return;
+        }
+        Gtk::RecentManager::Data data;
+        data.app_name = "Lunduke City";
+        data.app_exec = "lunduke-city %f";
+        data.mime_type = "application/x-lunduke-city";
+        manager->add_item(Glib::filename_to_uri(path), data);
+    } catch (const Glib::Error &) {
+    }
+}
+
+void AppWindow::on_recent_city_activated()
+{
+    if (recent_menu_ == nullptr) {
+        return;
+    }
+    const Glib::ustring uri = recent_menu_->get_current_uri();
+    if (uri.empty()) {
+        return;
+    }
+    std::string path;
+    try {
+        path = Glib::filename_from_uri(uri);
+    } catch (const Glib::Error &) {
+        return;
+    }
+    open_city_file(path);
 }
 
 void AppWindow::build_ui()
@@ -385,6 +615,26 @@ void AppWindow::build_menus()
     system->set_submenu(*system_menu);
     add_item(system_menu, "_New City", GDK_KEY_n, sigc::mem_fun(*this, &AppWindow::on_new_city));
     add_item(system_menu, "_Load City...", GDK_KEY_o, sigc::mem_fun(*this, &AppWindow::on_load_city));
+    {
+        // P-4 (round 15): cities this app opened or saved, from the desktop's
+        // shared recent-files list (newest first, missing files hidden).
+        auto *recent = Gtk::manage(new Gtk::MenuItem("Open _Recent", true));
+        recent_menu_ = Gtk::manage(new Gtk::RecentChooserMenu());
+        auto filter = Gtk::RecentFilter::create();
+        filter->set_name("Cities");
+        filter->add_application("Lunduke City");
+        recent_menu_->add_filter(filter);
+        recent_menu_->set_filter(filter);
+        recent_menu_->set_show_not_found(false);
+        recent_menu_->set_local_only(true);
+        recent_menu_->set_show_tips(true);
+        recent_menu_->set_sort_type(Gtk::RECENT_SORT_MRU);
+        recent_menu_->set_limit(10);
+        recent_menu_->signal_item_activated().connect(
+            sigc::mem_fun(*this, &AppWindow::on_recent_city_activated));
+        recent->set_submenu(*recent_menu_);
+        system_menu->append(*recent);
+    }
     add_item(system_menu, "Save _City", GDK_KEY_s, sigc::mem_fun(*this, &AppWindow::on_save_city));
     {
         // C-6 (round 12): Ctrl+Shift+S for Save As.
@@ -1045,6 +1295,8 @@ bool AppWindow::on_key_press_event(GdkEventKey *event)
 bool AppWindow::confirm_unsaved()
 {
     if (!session_ || !session_->needs_save_prompt()) {
+        // Nothing unsaved: this run's autosave (if any) is no longer needed.
+        drop_own_recovery();
         return true;
     }
     Gtk::MessageDialog dialog(*this, "Save changes to this city before continuing?", false,
@@ -1060,6 +1312,8 @@ bool AppWindow::confirm_unsaved()
     }
     if (response == Gtk::RESPONSE_REJECT) {
         session_->discard_pending_budget();
+        // The player chose to throw this city away; so is its autosave.
+        drop_own_recovery();
         return true;
     }
     return false;
@@ -1231,6 +1485,7 @@ AppWindow::CityFileOpen AppWindow::finish_open_city(const std::string &path)
     if (slash != std::string::npos) {
         remember_city_folder(path.substr(0, slash));
     }
+    remember_recent_city(path);
     return CityFileOpen::Loaded;
 }
 
@@ -1329,6 +1584,8 @@ void AppWindow::on_save_city()
         report_save_failure();
     } else {
         remember_city_folder(session_->save_path());
+        remember_recent_city(session_->save_path());
+        drop_own_recovery();
     }
     refresh();
 }
@@ -1377,6 +1634,8 @@ void AppWindow::on_save_city_as()
         report_save_failure();
     } else {
         remember_city_folder(path);
+        remember_recent_city(path);
+        drop_own_recovery();
     }
     refresh();
 }
@@ -2278,5 +2537,57 @@ int round12_window_probe(AppWindow &window, int op)
     window.budget_window_.hide();
     round8_run_for(100);
     return bits;
+}
+#endif
+
+#ifdef LUNDUKE_CITY_TEST_HOOKS
+int round15_window_probe(AppWindow &window, int op, const std::string &arg)
+{
+    switch (op) {
+    case 1: // make unsaved work
+        window.session_->rename_city(arg.empty() ? std::string("Probe Town") : arg);
+        return window.session_->needs_save_prompt() ? 1 : 0;
+    case 2: // autosave now
+        return window.autosave_now(false) ? 1 : 0;
+    case 3: { // this run's recovery file exists
+        struct stat st;
+        return (!window.own_recovery_.empty() && lstat(window.own_recovery_.c_str(), &st) == 0) ? 1 : 0;
+    }
+    case 4: // open a city file as Load City would
+        return window.open_city_file(arg) == AppWindow::CityFileOpen::Loaded ? 1 : 0;
+    case 5: { // Open Recent lists arg (a path)
+        if (window.recent_menu_ == nullptr) {
+            return -1;
+        }
+        int found = 0;
+        const std::string uri = Glib::filename_to_uri(arg);
+        for (const auto &info : window.recent_menu_->get_items()) {
+            if (info && info->get_uri() == uri) {
+                found = 1;
+            }
+        }
+        return found;
+    }
+    case 6:
+        window.offer_recovery();
+        return 1;
+    case 7: { // bits: 1 city name == arg, 2 unsaved, 4 save path set, 8 paused
+        int bits = 0;
+        if (window.session_->city_name() == arg) bits |= 1;
+        if (window.session_->needs_save_prompt()) bits |= 2;
+        if (!window.session_->save_path().empty()) bits |= 4;
+        if (window.session_->speed() == 0) bits |= 8;
+        return bits;
+    }
+    case 8:
+        window.on_save_city();
+        return window.session_->needs_save_prompt() ? 0 : 1;
+    case 9: // number of Open Recent items
+        return window.recent_menu_ ? static_cast<int>(window.recent_menu_->get_items().size()) : -1;
+    case 10: // confirm_unsaved with nothing unsaved
+        return window.confirm_unsaved() ? 1 : 0;
+    default:
+        return -1;
+    }
 }
 #endif

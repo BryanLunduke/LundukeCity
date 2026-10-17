@@ -138,6 +138,16 @@ public:
     // The reason a file cannot be loaded as a city, or "" if it looks loadable.
     static std::string load_problem(const std::string &path);
     bool save_city_as(const std::string &path);
+    // C-1 (round 15): write the live city to a recovery file without
+    // changing the save path, the unsaved-work state or a waiting tax year.
+    // Returns false and leaves the city untouched when the write fails.
+    bool write_recovery(const std::string &path);
+    // Load a recovery file as unsaved work. origin_path (may be empty) is
+    // the file the city came from; Save writes there, and the city counts
+    // as unsaved until it is saved.
+    bool load_recovery(const std::string &recovery_path, const std::string &origin_path);
+    // Changes when the city changes in a way an autosave should capture.
+    std::string change_fingerprint() const;
     bool load_scenario(int id);
     void rename_city(const std::string &name);
     // False when the name is empty after spaces, tabs, and controls are stripped.

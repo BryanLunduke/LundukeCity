@@ -1906,7 +1906,11 @@ public:
 
     int sanitizeLoadedZones();
 
-    bool saveFile(const char *filename);
+    // commitPending false (autosave/recovery): write the file exactly as a
+    // save would, but leave a waiting tax year waiting in the live city.
+    bool saveFile(const char *filename, bool commitPending = true);
+    // Remove ".<base>.save-XXXXXX" leftovers of a crashed save (round 15).
+    static int removeStaleSaveTemps(const std::string &dir, const std::string &base, long minAgeSeconds);
 
     /** errno from the last failed save, or 0 when the failure had no errno. */
     int saveErrno;

@@ -69,6 +69,10 @@
 #include "micropolis.h"
 
 #include <cerrno>
+#include <climits>
+#include <cstdlib>
+#include <ctime>
+#include <dirent.h>
 #include <cstring>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -902,7 +906,62 @@ void Micropolis::restoreEnableDisasters()
  * @param filename Name of the file to use for storing the game.
  * @return The game was saved successfully.
  */
-bool Micropolis::saveFile(const char *filename)
+// C-3 (round 15): a crash between mkostemp and rename leaves
+// ".<base>.save-XXXXXX" next to the city. At the next save of the same name,
+// remove such leftovers that are regular files owned by this user and have
+// not been touched for a day. Other names and fresh temps are left alone.
+static bool is_save_temp_name(const std::string &name, const std::string &base)
+{
+    const std::string prefix = "." + base + ".save-";
+    if (name.size() != prefix.size() + 6 || name.compare(0, prefix.size(), prefix) != 0) {
+        return false;
+    }
+    for (std::string::size_type i = prefix.size(); i < name.size(); ++i) {
+        const char c = name[i];
+        const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+        if (!ok) {
+            return false;
+        }
+    }
+    return true;
+}
+
+int Micropolis::removeStaleSaveTemps(const std::string &dir, const std::string &base, long minAgeSeconds)
+{
+    const std::string open_dir = dir.empty() ? std::string(".") : dir;
+    const int dfd = open(open_dir.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (dfd < 0) {
+        return 0;
+    }
+    DIR *d = fdopendir(dfd);
+    if (d == NULL) {
+        close(dfd);
+        return 0;
+    }
+    int removed = 0;
+    const time_t now = time(NULL);
+    while (struct dirent *ent = readdir(d)) {
+        const std::string name = ent->d_name;
+        if (!is_save_temp_name(name, base)) {
+            continue;
+        }
+        struct stat st;
+        if (fstatat(dfd, name.c_str(), &st, AT_SYMLINK_NOFOLLOW) != 0 || !S_ISREG(st.st_mode) ||
+            st.st_uid != geteuid()) {
+            continue;
+        }
+        if (now - st.st_mtime < minAgeSeconds) {
+            continue;
+        }
+        if (unlinkat(dfd, name.c_str(), 0) == 0) {
+            ++removed;
+        }
+    }
+    closedir(d);
+    return removed;
+}
+
+bool Micropolis::saveFile(const char *requestedFilename, bool commitPending)
 {
     saveErrno = 0;
     saveErrorDetail.clear();
@@ -912,13 +971,37 @@ bool Micropolis::saveFile(const char *filename)
         return false;
     };
 
-    if (filename == NULL || filename[0] == '\0') {
+    if (requestedFilename == NULL || requestedFilename[0] == '\0') {
         return fail(EINVAL, "No file name");
     }
 
-    // Refuse anything that is not a real file, including a symlink.
-    // fopen() would follow the link and truncate the target.
+    // C-2 (round 15): a city kept behind a symlink (~/Cities/main.cty ->
+    // a synced or NAS file) is saved to the link's real file. The atomic
+    // replace happens in the real file's folder, so the link stays a link.
+    // A link whose target cannot be reached is refused with a Save As hint.
+    std::string resolved(requestedFilename);
     struct stat existing;
+    if (lstat(requestedFilename, &existing) == 0 && S_ISLNK(existing.st_mode)) {
+        char *real = realpath(requestedFilename, NULL);
+        if (real == NULL) {
+            const int err = errno;
+            std::string text = "The link points to a file that cannot be reached";
+            const char *why = std::strerror(err);
+            if (why != NULL && why[0] != '\0') {
+                text += std::string(" (") + why + ")";
+            }
+            text += ". Use Save City As to choose another place";
+            saveErrno = err;
+            saveErrorDetail = text;
+            return false;
+        }
+        resolved = real;
+        std::free(real);
+    }
+    const char *filename = resolved.c_str();
+
+    // Refuse anything that is not a real file. The final symlink was
+    // resolved above, so a link here is one created in the meantime.
     if (lstat(filename, &existing) == 0) {
         if (S_ISLNK(existing.st_mode)) {
             return fail(0, "Is a symlink");
@@ -940,6 +1023,7 @@ bool Micropolis::saveFile(const char *filename)
     const std::string::size_type slash = fname.rfind('/');
     const std::string dir = (slash == std::string::npos) ? std::string() : fname.substr(0, slash + 1);
     const std::string base = (slash == std::string::npos) ? fname : fname.substr(slash + 1);
+    removeStaleSaveTemps(dir, base, 24L * 60L * 60L);
     std::string tmpl = dir + "." + base + ".save-XXXXXX";
     std::vector<char> tmpbuf(tmpl.begin(), tmpl.end());
     tmpbuf.push_back('\0');
@@ -958,6 +1042,16 @@ bool Micropolis::saveFile(const char *filename)
         const mode_t mask = umask(0);
         umask(mask);
         want_mode = 0666 & ~mask;
+    }
+    // C-3 (round 15): best effort, like Paint. Keeps the file's group in a
+    // shared folder; a user who may not take that owner or group still
+    // saves, and the permission bits below are applied either way.
+    if (had_existing) {
+        if (fchown(fd, existing.st_uid, existing.st_gid) != 0) {
+            if (fchown(fd, (uid_t)-1, existing.st_gid) != 0) {
+                // Keep this process's owner and group.
+            }
+        }
     }
     if (fchmod(fd, want_mode) != 0) {
         const int err = errno;
@@ -1064,7 +1158,12 @@ bool Micropolis::saveFile(const char *filename)
     }
 
     // The new file is the city on disk. Collect the year that was written.
-    if (pending) {
+    // An autosave (commitPending false) leaves the year waiting in the live
+    // city, so the budget window still opens as it would have.
+    if (pending && !commitPending) {
+        std::memcpy(miscHist, misc_backup, sizeof(misc_backup));
+    }
+    if (pending && commitPending) {
         commitBudgetPayment();
     }
     saveErrno = 0;

@@ -1,13 +1,13 @@
 project(
   'lunduke-city',
   'cpp',
-  version: '0.9.4',
+  version: '0.9.5',
   default_options: ['cpp_std=c++17', 'warning_level=2'],
   meson_version: '>= 0.60',
 )
 
-# Debian package version. The Meson project version is 0.9.4.
-lunduke_package_version = '0.9.4-8'
+# Debian package version. The Meson project version is 0.9.5.
+lunduke_package_version = '0.9.5-1'
 
 gtkmm_dep = dependency('gtkmm-3.0')
 thread_dep = dependency('threads')
@@ -21,6 +21,19 @@ install_data(
   'data/lunduke-city.desktop',
   install_dir: get_option('datadir') / 'applications',
 )
+# C-4 (round 15): AppStream metadata.
+install_data(
+  'data/com.lunduke.LundukeCity.metainfo.xml',
+  install_dir: get_option('datadir') / 'metainfo',
+)
+appstreamcli = find_program('appstreamcli', required: false)
+if appstreamcli.found()
+  test(
+    'metainfo',
+    appstreamcli,
+    args: ['validate', '--no-net', files('data/com.lunduke.LundukeCity.metainfo.xml')],
+  )
+endif
 install_data(
   'data/lunduke-city.xml',
   install_dir: get_option('datadir') / 'mime' / 'packages',

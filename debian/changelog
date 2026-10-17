@@ -1,3 +1,28 @@
+lunduke-city (0.9.5-1) unstable; urgency=medium
+
+  * Version 0.9.5 for the LCOS 0.9.5 track.
+  * Round 15 C-1: autosave and crash recovery. Unsaved work is autosaved
+    once a minute to $XDG_STATE_HOME/lunduke-city/recovery-*.cty (0700
+    folder, engine atomic save, a waiting tax year is not collected), and
+    SIGTERM/SIGHUP (logout, shutdown) write it before City exits without a
+    prompt. The next start asks "Recover unsaved city?": Recover restores
+    it as unsaved work that saves to its original file; Not Now or Escape
+    keeps it; Discard asks to confirm and Cancel returns to the question.
+    Saving, or answering the unsaved-city question, removes the autosave.
+  * Round 15 C-2: saving a city kept behind a symbolic link writes the real
+    file (atomic replace in its own folder) and keeps the link; a dangling
+    link is refused with a hint to use Save City As.
+  * Round 15 C-3: saving over an existing file keeps its owner and group
+    where allowed (best-effort fchown, like Paint); leftover
+    ".<name>.save-XXXXXX" files from a crashed save that are a day old are
+    removed at the next save of that name.
+  * Round 15 C-4: ship AppStream metadata
+    (com.lunduke.LundukeCity.metainfo.xml), validated by a test.
+  * Round 15 P-4 (City part): System > Open Recent lists cities City opened
+    or saved, and they are added to the desktop's recent files.
+
+ -- Phil <phil@brushpad.local>  Sat, 17 Oct 2026 02:10:54 +0000
+
 lunduke-city (0.9.4-8) unstable; urgency=medium
 
   * Fix round 14 review findings: saving keeps the city file's existing
