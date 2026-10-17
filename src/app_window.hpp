@@ -23,6 +23,7 @@
 #include <gtkmm/label.h>
 #include <gtkmm/menubar.h>
 #include <gtkmm/radiomenuitem.h>
+#include <gtkmm/recentchoosermenu.h>
 #include <gtkmm/scrolledwindow.h>
 #include <gtkmm/sizegroup.h>
 #include <chrono>
@@ -97,6 +98,15 @@ private:
     void grab_followup_shots();
 
     bool on_tick();
+    // C-1 (round 15): autosave and crash recovery.
+    bool on_autosave_timer();
+    bool autosave_now(bool force);
+    void drop_own_recovery();
+    void offer_recovery();
+    static gboolean on_terminate_signal(gpointer self);
+    // P-4 (round 15, City too): desktop recent files + System > Open Recent.
+    void remember_recent_city(const std::string &path);
+    void on_recent_city_activated();
     bool on_key_press_event(GdkEventKey *event) override;
     bool on_delete_event(GdkEventAny *event) override;
 
@@ -144,6 +154,13 @@ private:
     Glib::RefPtr<Gtk::AccelGroup> accel_;
     Glib::RefPtr<Gtk::SizeGroup> status_ends_;
     sigc::connection timer_;
+    sigc::connection autosave_timer_;
+    std::string own_recovery_;
+    std::string autosave_fingerprint_;
+    unsigned sigterm_source_ = 0;
+    unsigned sighup_source_ = 0;
+    bool terminating_ = false;
+    Gtk::RecentChooserMenu *recent_menu_ = nullptr;
     bool updating_checks_ = false;
     int speed_ = 0;
     std::string tool_hint_ = "Power lines: $5. Underwater wire: $25";
@@ -207,6 +224,7 @@ private:
     friend int round8_window_probe(AppWindow &window, int op);
     friend int round9_window_probe(AppWindow &window, int op);
     friend int round12_window_probe(AppWindow &window, int op);
+    friend int round15_window_probe(AppWindow &window, int op, const std::string &arg);
 #endif
 };
 
@@ -219,4 +237,6 @@ int round9_window_probe(AppWindow &window, int op);
 // Round 12: Help menu, Save As shortcut, empty-city evaluation, load
 // reasons, full map redraw, Budget fits the work area. Returns a bit mask.
 int round12_window_probe(AppWindow &window, int op);
+// Round 15: autosave, recovery prompt, SIGTERM, Open Recent.
+int round15_window_probe(AppWindow &window, int op, const std::string &arg);
 #endif

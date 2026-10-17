@@ -604,9 +604,15 @@ static int test_hostile_review()
     chmod(atomic_dir.c_str(), 0755);
     const std::string link = "/tmp/lunduke-atomic-link.cty";
     std::remove(link.c_str());
-    if (symlink(atomic.c_str(), link.c_str()) != 0 || kept.saveFile(link.c_str()) || read_bytes(atomic) != previous) {
-        std::remove(link.c_str());
-        return fail(64, "save followed a symlink and changed the target");
+    // Round 15 C-2: saving through a symlink replaces the real file and
+    // keeps the link (it used to be refused with "Is a symlink").
+    {
+        struct stat lst;
+        if (symlink(atomic.c_str(), link.c_str()) != 0 || !kept.saveFile(link.c_str()) ||
+            lstat(link.c_str(), &lst) != 0 || !S_ISLNK(lst.st_mode) || read_bytes(atomic).size() != previous.size()) {
+            std::remove(link.c_str());
+            return fail(64, "save through a symlink did not replace the target and keep the link");
+        }
     }
     std::remove(link.c_str());
     std::remove(atomic.c_str());

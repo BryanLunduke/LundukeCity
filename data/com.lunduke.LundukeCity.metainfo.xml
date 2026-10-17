@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.lunduke.LundukeCity</id>
+  <metadata_license>FSFAP</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Lunduke City</name>
+  <summary>Build and manage a city</summary>
+  <description>
+    <p>
+      Lunduke City is a windowed city-building game for LCOS, built on the
+      Micropolis simulation engine. Zone land, lay roads and power, set the
+      budget, and watch the city grow, with the classic scenarios from
+      Dullsville to Rio de Janeiro.
+    </p>
+    <p>
+      Cities are saved as .cty files. Unsaved work is autosaved and offered
+      back after a crash or logout.
+    </p>
+  </description>
+  <url type="homepage">https://lunduke.com</url>
+  <launchable type="desktop-id">lunduke-city.desktop</launchable>
+  <provides>
+    <binary>lunduke-city</binary>
+    <mediatype>application/x-lunduke-city</mediatype>
+  </provides>
+  <developer id="com.lunduke">
+    <name>The Lunduke Journal</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+  <categories>
+    <category>Game</category>
+    <category>Simulation</category>
+  </categories>
+  <releases>
+    <release version="0.9.5" date="2026-10-16">
+      <description>
+        <p>Autosave with crash and logout recovery, Open Recent, saving through a symbolic link, keeping a shared file's group, cleanup of leftover temporary save files, and this AppStream metadata.</p>
+      </description>
+    </release>
+    <release version="0.9.4" date="2026-10-13">
+      <description>
+        <p>Review fixes: safer loading and saving of city files, a Help menu, Save As shortcut, and windows that fit small screens.</p>
+      </description>
+    </release>
+  </releases>
+</component>

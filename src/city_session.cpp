@@ -867,6 +867,38 @@ bool CitySession::save_city_as(const std::string &path)
     return true;
 }
 
+bool CitySession::write_recovery(const std::string &path)
+{
+    if (!ready_ || path.empty()) {
+        return false;
+    }
+    // saveFile, not saveCityAs: no "saved" callback, no engine file name
+    // change, and a waiting tax year stays waiting (commitPending false).
+    return engine_->sim.saveFile(path.c_str(), false);
+}
+
+bool CitySession::load_recovery(const std::string &recovery_path, const std::string &origin_path)
+{
+    if (!load_city(recovery_path)) {
+        return false;
+    }
+    save_path_ = origin_path;
+    engine_->sim.cityFileName = origin_path;
+    // Recovered work is unsaved until the player saves it.
+    dirty_ = true;
+    post_message("Recovered an unsaved city. Save it to keep it.");
+    return true;
+}
+
+std::string CitySession::change_fingerprint() const
+{
+    const Micropolis &sim = engine_->sim;
+    return std::to_string(static_cast<long long>(sim.cityTime)) + ":" + std::to_string(map_serial()) + ":" +
+           std::to_string(static_cast<long long>(sim.totalFunds)) + ":" + std::to_string(dirty_ ? 1 : 0) + ":" +
+           std::to_string(budget_pending() ? 1 : 0) + ":" + sim.cityName + ":" +
+           std::to_string(static_cast<int>(sim.cityTax));
+}
+
 void CitySession::tick()
 {
     if (!ready_ || simulation_paused_) {

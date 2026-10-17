@@ -334,11 +334,14 @@ int main()
     rmdir(blocked.c_str());
     const std::string link = "/tmp/lunduke-round3-link.cty";
     std::remove(link.c_str());
-    if (symlink(path.c_str(), link.c_str()) != 0 || saver.save_city_as(link) ||
-        saver.message().find("symlink") == std::string::npos) {
+    // Round 15 C-2: Save through a symlink writes the real file and keeps
+    // the link (it used to be refused with "Is a symlink").
+    struct stat link_st;
+    if (symlink(path.c_str(), link.c_str()) != 0 || !saver.save_city_as(link) ||
+        lstat(link.c_str(), &link_st) != 0 || !S_ISLNK(link_st.st_mode) || saver.needs_save_prompt()) {
         std::fprintf(stderr, "link msg '%s'\n", saver.message().c_str());
         std::remove(link.c_str());
-        return fail(40, "saving onto a symlink did not say so");
+        return fail(40, "saving through a symlink did not write the target and keep the link");
     }
     std::remove(link.c_str());
 
