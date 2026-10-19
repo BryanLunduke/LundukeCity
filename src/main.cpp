@@ -36,8 +36,18 @@ int main(int argc, char *argv[])
     // process exits as soon as that handler returns, which is what made
     // `lunduke-city file.cty` quit before the city appeared. The hold is
     // released when the player closes the window.
-    app->hold();
-    bool held = true;
+    //
+    // 0.9.5-2: hold only in the primary instance. startup runs only there;
+    // a second launch just forwards its open/activate to the primary and
+    // must then exit, not stay behind as a hidden process forever.
+    bool held = false;
+    app->signal_startup().connect([app, &held] {
+        if (held) {
+            return;
+        }
+        app->hold();
+        held = true;
+    });
     window.signal_hide().connect([app, &held] {
         if (!held) {
             return;
@@ -47,13 +57,15 @@ int main(int argc, char *argv[])
     });
     app->signal_open().connect([&window](const Gtk::Application::type_vec_files &files, const Glib::ustring &) {
         present_for_open(window);
+        // 0.9.5-2: request_open holds the file while a City dialog is up
+        // and opens it after the dialog closes.
         if (files.empty() || !files[0]) {
-            window.open_city_file({});
+            window.request_open({});
             return;
         }
         // A single-city window opens the first file. %f from the file
         // manager passes one path. A bad or missing file shows a dialog.
-        window.open_city_file(files[0]->get_path());
+        window.request_open(files[0]->get_path());
     });
     return app->run(window);
 }

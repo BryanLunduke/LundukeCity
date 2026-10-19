@@ -49,7 +49,16 @@ public:
     // replace the city. The process stays open.
     CityFileOpen open_city_file(const std::string &path);
 
+    // 0.9.5-2: opens from outside the window (command line, file manager, a
+    // second launch). While any City dialog or nested loop is up the path is
+    // held and opened after it closes, so the city under that dialog never
+    // changes. An empty path reports "no local path" like open_city_file.
+    void request_open(const std::string &path);
+    bool opens_must_wait() const;
+    std::size_t pending_open_count() const { return pending_opens_.size(); }
+
 private:
+    bool drain_pending_opens();
     void build_ui();
     void build_menus();
     void bind_session();
@@ -174,6 +183,12 @@ private:
     bool query_pinned_ = false;
     int modal_depth_ = 0;
     bool tax_budget_modal_ = false;
+    std::vector<std::string> pending_opens_;
+    sigc::connection pending_open_timer_;
+    // Bumped whenever a different city replaces the loaded one (load, new,
+    // scenario, recovery). Save City As refuses to write if it changed while
+    // its dialog was up (0.9.5-2).
+    unsigned city_generation_ = 0;
     int paused_from_speed_ = 2;
 
     // What the last refresh() showed. A paused city skips refresh() until
@@ -225,6 +240,7 @@ private:
     friend int round9_window_probe(AppWindow &window, int op);
     friend int round12_window_probe(AppWindow &window, int op);
     friend int round15_window_probe(AppWindow &window, int op, const std::string &arg);
+    friend int round0952_window_probe(AppWindow &window, int op, const std::string &arg);
 #endif
 };
 
@@ -239,4 +255,6 @@ int round9_window_probe(AppWindow &window, int op);
 int round12_window_probe(AppWindow &window, int op);
 // Round 15: autosave, recovery prompt, SIGTERM, Open Recent.
 int round15_window_probe(AppWindow &window, int op, const std::string &arg);
+// 0.9.5-2: held outside opens and the Save City As binding.
+int round0952_window_probe(AppWindow &window, int op, const std::string &arg);
 #endif

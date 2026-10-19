@@ -184,6 +184,7 @@ AppWindow::~AppWindow()
 {
     timer_.disconnect();
     autosave_timer_.disconnect();
+    pending_open_timer_.disconnect();
     if (sigterm_source_ != 0) {
         g_source_remove(sigterm_source_);
     }
@@ -408,6 +409,7 @@ void AppWindow::offer_recovery()
             // This run now owns that file: it stays until the city is saved
             // (or discarded), and the next autosave replaces it in place.
             own_recovery_ = e.path;
+            ++city_generation_;
             autosave_fingerprint_ = session_->change_fingerprint();
             speed_ = 0;
             session_->set_speed(0);
@@ -1365,6 +1367,7 @@ void AppWindow::on_new_city()
     // message and must stay on the bar.
     clear_transient_message();
     const int serial = session_->message_serial();
+    ++city_generation_;
     session_->new_city(spec);
     if (session_->message_serial() != serial) {
         refresh();
@@ -1379,6 +1382,7 @@ void AppWindow::on_new_city()
 bool AppWindow::replace_with_loaded_city(const std::string &path)
 {
     clear_transient_message();
+    ++city_generation_;
     if (!session_->load_city(path)) {
         refresh();
         return false;
@@ -1393,6 +1397,7 @@ bool AppWindow::replace_with_loaded_city(const std::string &path)
 bool AppWindow::replace_with_scenario(int id)
 {
     clear_transient_message();
+    ++city_generation_;
     if (!session_->load_scenario(id)) {
         refresh();
         return false;
@@ -1487,6 +1492,57 @@ AppWindow::CityFileOpen AppWindow::finish_open_city(const std::string &path)
     }
     remember_recent_city(path);
     return CityFileOpen::Loaded;
+}
+
+bool AppWindow::opens_must_wait() const
+{
+    if (modal_depth_ > 0) {
+        return true;
+    }
+    // gtk_dialog_run() makes every City dialog modal (the unsaved-city
+    // question, choosers, wizards, message boxes), so a visible modal
+    // toplevel means a dialog and its nested main loop are up.
+    bool modal = false;
+    GList *tops = gtk_window_list_toplevels();
+    for (GList *item = tops; item != nullptr; item = item->next) {
+        GtkWindow *top = GTK_WINDOW(item->data);
+        if (static_cast<const void *>(top) != static_cast<const void *>(gobj()) &&
+            gtk_widget_get_visible(GTK_WIDGET(top)) && gtk_window_get_modal(top)) {
+            modal = true;
+            break;
+        }
+    }
+    g_list_free(tops);
+    return modal;
+}
+
+void AppWindow::request_open(const std::string &path)
+{
+    if (pending_opens_.empty() && !opens_must_wait()) {
+        open_city_file(path);
+        return;
+    }
+    pending_opens_.push_back(path);
+    if (!pending_open_timer_.connected()) {
+        pending_open_timer_ =
+            Glib::signal_timeout().connect(sigc::mem_fun(*this, &AppWindow::drain_pending_opens), 100);
+    }
+}
+
+bool AppWindow::drain_pending_opens()
+{
+    // One path per tick, in arrival order. An open that shows its own
+    // dialog (unsaved city, load error) holds the rest until it closes.
+    if (pending_opens_.empty()) {
+        return false;
+    }
+    if (opens_must_wait()) {
+        return true;
+    }
+    const std::string path = pending_opens_.front();
+    pending_opens_.erase(pending_opens_.begin());
+    open_city_file(path);
+    return !pending_opens_.empty();
 }
 
 AppWindow::CityFileOpen AppWindow::open_city_file(const std::string &path)
@@ -1593,6 +1649,8 @@ void AppWindow::on_save_city()
 void AppWindow::on_save_city_as()
 {
     ModalPause pause(*this);
+    // 0.9.5-2: write only the city this dialog was opened for.
+    const unsigned generation = city_generation_;
     Gtk::FileChooserDialog dialog(*this, "Save City", Gtk::FILE_CHOOSER_ACTION_SAVE);
     dialog.set_do_overwrite_confirmation(true);
     dialog.add_button("_Cancel", Gtk::RESPONSE_CANCEL);
@@ -1628,6 +1686,13 @@ void AppWindow::on_save_city_as()
         // that will actually be replaced.
     }
     if (path.empty()) {
+        return;
+    }
+    if (generation != city_generation_) {
+        Gtk::MessageDialog error(*this, "The city changed while the Save dialog was open.", false,
+                                 Gtk::MESSAGE_ERROR, Gtk::BUTTONS_OK, true);
+        error.set_secondary_text("Nothing was saved. Save again to save the city that is open now.");
+        error.run();
         return;
     }
     if (!session_->save_city_as(path)) {
@@ -2586,6 +2651,23 @@ int round15_window_probe(AppWindow &window, int op, const std::string &arg)
         return window.recent_menu_ ? static_cast<int>(window.recent_menu_->get_items().size()) : -1;
     case 10: // confirm_unsaved with nothing unsaved
         return window.confirm_unsaved() ? 1 : 0;
+    default:
+        return -1;
+    }
+}
+#endif
+
+#ifdef LUNDUKE_CITY_TEST_HOOKS
+int round0952_window_probe(AppWindow &window, int op, const std::string &arg)
+{
+    switch (op) {
+    case 1: // System > Save City As... (runs the chooser)
+        window.on_save_city_as();
+        return 1;
+    case 2: // the loaded city is named arg
+        return window.session_->city_name() == arg ? 1 : 0;
+    case 3: // unsaved work
+        return window.session_->needs_save_prompt() ? 1 : 0;
     default:
         return -1;
     }

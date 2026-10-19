@@ -1,3 +1,19 @@
+lunduke-city (0.9.5-2) unstable; urgency=medium
+
+  * Pre-1.0 fix C-1: a city opened from outside (command line, file
+    manager, a second launch) while a City dialog is open (Save City As,
+    Load City, New City, the scenario list, the unsaved-city question and
+    the other modal dialogs) is held and opened after the dialog closes,
+    instead of replacing the city under the dialog. Save City As also
+    refuses to write if a different city was loaded while its dialog was
+    open, so it can never save another city over the file it proposed.
+  * Pre-1.0 fix C-2: only the running City holds the application. A second
+    launch (menu entry again, or double-clicking a .cty) now forwards its
+    open to the running City and exits, instead of staying behind as a
+    hidden process that ignored SIGTERM.
+
+ -- Phil <phil@brushpad.local>  Mon, 19 Oct 2026 03:19:45 +0000
+
 lunduke-city (0.9.5-1) unstable; urgency=medium
 
   * Version 0.9.5 for the LCOS 0.9.5 track.

@@ -586,3 +586,47 @@ ui_round15 = executable(
 )
 
 test('ui_round15', ui_round15, timeout: 240)
+
+# 0.9.5-2 C-1: outside opens held while a City dialog is up; Save City As
+# bound to its city.
+ui_round0952 = executable(
+  'ui_round0952',
+  'ui_round0952.cpp',
+  '../src/about_dialog.cpp',
+  '../src/app_window.cpp',
+  '../src/assets.cpp',
+  '../src/budget_window.cpp',
+  '../src/city_session.cpp',
+  '../src/evaluation_window.cpp',
+  '../src/graphs_window.cpp',
+  '../src/map_view.cpp',
+  '../src/messages.cpp',
+  '../src/new_city_dialog.cpp',
+  '../src/overlay_window.cpp',
+  '../src/side_widgets.cpp',
+  '../src/sound_player.cpp',
+  '../src/sprite_art.cpp',
+  '../src/tile_atlas.cpp',
+  '../src/tool_palette.cpp',
+  '../src/tools.cpp',
+  include_directories: include_directories('../src'),
+  dependencies: [gtkmm_dep, micropolis_dep, thread_dep],
+  cpp_args: [
+    '-DLUNDUKE_CITY_ASSET_DIR="' + lunduke_asset_dir + '"',
+    '-DLUNDUKE_CITY_PACKAGE_VERSION="' + lunduke_package_version + '"',
+    '-DLUNDUKE_CITY_TEST_HOOKS',
+  ],
+)
+
+test('ui_round0952', ui_round0952, timeout: 180)
+
+# 0.9.5-2 C-2: a second launch (plain, or with a .cty) forwards to the
+# running City and exits; it does not stay behind as a hidden process.
+test(
+  'second_launch',
+  find_program('sh'),
+  args: [files('second_launch.sh'), lunduke_city_exe.full_path(), lunduke_asset_dir],
+  depends: lunduke_city_exe,
+  timeout: 120,
+  is_parallel: false,
+)
